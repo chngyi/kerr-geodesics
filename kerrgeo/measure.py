@@ -71,7 +71,7 @@ def measure_deflection(metric, b, r0=1e5, r_escape=None, lam_max=None,
 
 
 def measure_precession(metric, r_peri, r_apo, n_orbits=1, method="DOP853",
-                       rtol=1e-13, atol=1e-13, n_steps=None):
+                       rtol=1e-13, atol=1e-13, n_steps=None, prograde=True):
     """Periapsis advance per radial period, in radians.
 
     Integrates a bound equatorial orbit from periapsis and uses scipy's event
@@ -99,7 +99,7 @@ def measure_precession(metric, r_peri, r_apo, n_orbits=1, method="DOP853",
     """
     from .hamiltonian import orbit_from_apsides
 
-    y0, E, Lz = orbit_from_apsides(metric, r_peri, r_apo)
+    y0, E, Lz = orbit_from_apsides(metric, r_peri, r_apo, prograde)
 
     # Radial period is roughly the Keplerian value; integrate generously past
     # the requested number of orbits so the last event is definitely captured.
@@ -139,8 +139,129 @@ def measure_precession(metric, r_peri, r_apo, n_orbits=1, method="DOP853",
         )
 
     phi_end = phi_events[n_orbits - 1]
-    # Started exactly at periapsis with phi = 0.
-    return (phi_end - 2.0 * np.pi * n_orbits) / n_orbits
+    # Started exactly at periapsis with phi = 0.  For a retrograde orbit phi
+    # runs negative; the advance is defined in the direction of motion.
+    s = 1.0 if prograde else -1.0
+    return (s * phi_end - 2.0 * np.pi * n_orbits) / n_orbits
+
+
+def measure_orbital_frequency(metric, r, prograde=True, rtol=1e-12, atol=1e-12):
+    """Omega_phi = dphi/dt of a circular equatorial orbit, measured by
+    integrating one full revolution and timing it in coordinate time.
+
+    Compares against the closed form sqrt(M)/(r^{3/2} +/- a sqrt(M)) -- which
+    is worth pausing on: it is *exactly* Kepler's third law with a spin
+    correction in the denominator.  Prograde orbits (+) run slower in angle
+    than Kepler, retrograde (-) faster, and the difference between the two at
+    the same r is pure frame dragging.
+    """
+    from .hamiltonian import circular_orbit
+
+    y0, E, Lz = circular_orbit(metric, r, prograde)
+    s = 1.0 if prograde else -1.0
+
+    def one_rev(lam, y, *args):
+        return y[3] - s * 2.0 * np.pi
+
+    one_rev.terminal = True
+    one_rev.direction = s
+    # Generous lambda budget: one revolution takes ~2 pi r^{3/2} in proper time.
+    sol = trace(metric, y0, 20.0 * r**1.5, rtol=rtol, atol=atol,
+                events=[one_rev])
+    if not sol.t_events or len(sol.t_events[0]) == 0:
+        raise RuntimeError("orbit never completed a revolution; bug in setup")
+    t_period = sol.y_events[0][0][0]                # coordinate time at phi = 2 pi s
+    return s * 2.0 * np.pi / t_period
+
+
+def measure_nodal_precession(metric, r, Q=None, prograde=True,
+                             rtol=1e-12, atol=1e-12):
+    """Lense-Thirring nodal precession of a slightly inclined circular orbit.
+
+    In Schwarzschild an orbital plane is fixed forever.  In Kerr an inclined
+    orbit's plane is dragged around the spin axis: the ascending node -- the
+    point where the orbit crosses the equator heading north -- advances each
+    polar cycle.  This is the effect Gravity Probe B and the LAGEOS satellites
+    measured around the (slowly!) rotating Earth.
+
+    Method: build an exactly spherical inclined orbit (constant r, small Q),
+    record phi at successive ascending nodes.  Between two ascending nodes the
+    orbit completes exactly one polar period, so
+
+        (phi_2 - phi_1) / 2 pi  =  Omega_phi / Omega_theta
+
+    and the node advance per polar cycle is 2 pi (Omega_phi/Omega_theta - s).
+    Returned as (measured_ratio, advance).  The closed form for the ratio
+    (from `analytic.kerr_circular_frequencies`) is exact only in the i -> 0
+    limit, so agreement is to O(i^2) = O(Q/Lz^2) -- choose Q accordingly.
+    """
+    from .hamiltonian import spherical_orbit
+
+    y0, E, Lz = (spherical_orbit(metric, r, Q if Q is not None
+                                 else 1e-4, prograde))
+    s = 1.0 if prograde else -1.0
+
+    def ascending(lam, y, *args):
+        return y[2] - np.pi / 2
+
+    ascending.terminal = False
+    ascending.direction = -1.0        # theta decreasing = heading north
+
+    # Two ascending nodes need ~1.5 polar periods; budget generously in
+    # affine parameter (dt/dlambda ~ 1/(1 - 3M/r)-ish, order unity out here).
+    T_est = 2.0 * np.pi * r**1.5
+    sol = trace(metric, y0, 4.0 * T_est, rtol=rtol, atol=atol,
+                events=[ascending])
+    nodes = sol.y_events[0]
+    if len(nodes) < 2:
+        raise RuntimeError(f"only {len(nodes)} ascending nodes found; "
+                           "increase the integration span")
+    dphi = nodes[1][3] - nodes[0][3]
+    ratio = dphi / (2.0 * np.pi)
+    return ratio, 2.0 * np.pi * (ratio - s)
+
+
+def measure_phi_turnaround(metric, b, r0=100.0, rtol=1e-12, atol=1e-12):
+    """Radius at which a captured *retrograde* photon's azimuthal motion
+    reverses -- the sharpest picture of frame dragging there is.
+
+    A photon sent against the spin (Lz < 0) initially sweeps backwards,
+    dphi/dlambda < 0.  As it falls, the frame-drag term g^{t phi} E grows like
+    1/Delta and at some radius overwhelms the photon's own angular momentum:
+    from there in, the photon moves *forwards*, guaranteed to cross the
+    horizon corotating.  Setting dphi/dlambda = 0 in the equatorial plane
+    gives the closed form
+
+        r_flip = 2M + 2 a M E / |Lz|  =  2M (1 + a / |b|)
+
+    Note this is *outside* the static limit r = 2M: light gets its azimuthal
+    motion reversed before reaching the ergosphere.  (The ergosphere statement
+    -- no observer can stay non-rotating -- is about timelike worldlines; a
+    photon's phi-motion is softer and flips earlier.)
+
+    Returns the measured flip radius, found by an event on dphi/dlambda along
+    the integrated trajectory.
+    """
+    if b >= 0:
+        raise ValueError("phi-turnaround needs a retrograde photon: b < 0")
+    from .hamiltonian import photon_from_impact_parameter, rhs
+
+    y0 = photon_from_impact_parameter(metric, r0=r0, b=b)
+
+    def dphi(lam, y, *args):
+        return rhs(lam, y, metric)[3]
+
+    dphi.terminal = False
+    dphi.direction = 0.0
+
+    sol = trace(metric, y0, 50.0 * r0, rtol=rtol, atol=atol,
+                events=[dphi, horizon_event(metric)])
+    flips = sol.y_events[0]
+    if len(flips) == 0:
+        raise RuntimeError(
+            f"dphi/dlambda never changed sign: is |b| = {abs(b):g} below the "
+            f"retrograde capture threshold? (photon must be captured to flip)")
+    return float(flips[0][1])
 
 
 def capture_threshold(metric, b_lo, b_hi, r0=1e4, tol=1e-10, prograde=True):

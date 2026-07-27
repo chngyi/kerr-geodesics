@@ -166,6 +166,31 @@ class KerrBL(Metric):
         sign = -1.0 if prograde else 1.0
         return 2.0 * M * (1.0 + np.cos((2.0 / 3.0) * np.arccos(sign * a / M)))
 
+    def omega(self, r, theta=np.pi / 2):
+        """Frame-dragging angular velocity omega = -g_tphi / g_phiphi.
+
+        This is the angular velocity (dphi/dt) of a zero-angular-momentum
+        observer -- the rate at which spacetime itself is swept around the
+        hole.  A particle with Lz = 0 does not move on a plane of constant
+        phi; it orbits at exactly this rate, with no torque acting on it.
+        That IS frame dragging, stated as an equation.
+
+        In closed form  omega = 2 a M r / A,  with
+        A = (r^2 + a^2)^2 - a^2 Delta sin^2(theta).  Falls off as 2aM/r^3 far
+        away (the gravitomagnetic dipole), and at the horizon reaches
+        Omega_H = a / (2 M r_+), the "angular velocity of the horizon" --
+        every worldline crossing r_+ does so corotating at this rate.
+        """
+        a, M = self.a, self.M
+        D = r * r - 2.0 * M * r + a * a
+        A = (r * r + a * a) ** 2 - a * a * D * np.sin(theta) ** 2
+        return 2.0 * a * M * r / A
+
+    @property
+    def Omega_H(self):
+        """Angular velocity of the horizon, a / (2 M r_+)."""
+        return self.a / (2.0 * self.M * self.r_plus)
+
     def kretschmann(self, r, theta):
         """R_abcd R^abcd -- a coordinate-independent curvature scalar.
 

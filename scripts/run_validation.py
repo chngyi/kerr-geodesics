@@ -33,7 +33,7 @@ from kerrgeo import (  # noqa: E402
     state_from_constants,
     trace,
 )
-from kerrgeo.events import horizon_event  # noqa: E402
+from kerrgeo.events import escape_event, horizon_event  # noqa: E402
 
 ROWS: list[tuple] = []
 
@@ -154,6 +154,101 @@ def main():
         float(m9.kretschmann(m9.r_plus, np.pi / 3)), None, "coordinate artefact")
     row("Horizon handling", "Kretschmann at r=1e-4 on ring (divergent)",
         float(m9.kretschmann(1e-4, np.pi / 2)), None, "physical singularity")
+
+    # ======================================================================
+    # Stage 2: Kerr physics
+    # ======================================================================
+
+    m9 = KerrBL(a=0.9)
+
+    # -- capture thresholds: the frame-dragging asymmetry --------------------
+    for pro in (True, False):
+        bc_an = analytic.kerr_critical_impact_parameter(0.9, pro)
+        bc = measure.capture_threshold(m9, abs(bc_an) * 0.9, abs(bc_an) * 1.1,
+                                       r0=500.0, tol=1e-6, prograde=pro)
+        row("Kerr capture thresholds (a=0.9)",
+            f"|b_c| {'prograde' if pro else 'retrograde'} (bisection)",
+            bc, abs(bc_an), "vs Bardeen closed form")
+
+    d_pro = measure.measure_deflection(m9, +7.0, r0=1e5)
+    d_ret = measure.measure_deflection(m9, -7.0, r0=1e5)
+    row("Kerr capture thresholds (a=0.9)", "deflection ratio at |b|=7M",
+        d_ret / d_pro, None, "retrograde vs prograde: same |b|, 3.2x the bend")
+
+    # -- frame dragging -------------------------------------------------------
+    from kerrgeo import rhs, zamo_drop_state
+
+    y0 = zamo_drop_state(m9, 8.0)
+    sol = trace(m9, y0, 200.0, rtol=1e-12, atol=1e-12,
+                events=[horizon_event(m9)])
+    worst = max(abs(rhs(0.0, sol.y[:, i], m9)[3] / rhs(0.0, sol.y[:, i], m9)[0]
+                    - m9.omega(sol.y[1, i]))
+                for i in range(0, sol.y.shape[1], 5))
+    row("Frame dragging (a=0.9)", "ZAMO infall: max |dphi/dt - omega(r)|",
+        worst, None, "Lz=0 particle corotates at exactly the drag rate")
+    d_end = rhs(0.0, sol.y[:, -1], m9)
+    row("Frame dragging (a=0.9)", "dphi/dt at the horizon", d_end[3] / d_end[0],
+        m9.Omega_H, "everything crosses corotating at Omega_H")
+
+    r_flip = measure.measure_phi_turnaround(m9, -3.0)
+    row("Frame dragging (a=0.9)", "retrograde photon phi-reversal radius, b=-3M",
+        r_flip, 2.0 * (1.0 + 0.9 / 3.0), "vs 2M(1 + a/|b|)")
+
+    # -- orbital frequencies and the two precessions -------------------------
+    for pro in (True, False):
+        got = measure.measure_orbital_frequency(m9, 10.0, pro)
+        want = analytic.kerr_circular_frequencies(10.0, 0.9, pro)[0]
+        row("Kerr frequencies and precessions",
+            f"Omega_phi at r=10M, {'prograde' if pro else 'retrograde'}",
+            got, want, "Kepler + spin correction, timed over one revolution")
+
+    Om = analytic.kerr_circular_frequencies(12.0, 0.9, True)
+    ratio, adv = measure.measure_nodal_precession(m9, 12.0, Q=1e-6)
+    row("Kerr frequencies and precessions",
+        "Lense-Thirring node ratio Omega_phi/Omega_theta, r=12M",
+        ratio, Om[0] / Om[1], f"advance {adv:.4e} rad per polar period")
+    ratio0, _ = measure.measure_nodal_precession(Schwarzschild(), 12.0, Q=1e-6)
+    row("Kerr frequencies and precessions",
+        "same measurement at a=0 (control)", ratio0, 1.0,
+        "orbital planes are fixed without spin")
+
+    Om_pro = analytic.kerr_circular_frequencies(10.0, 0.9, True)
+    got = measure.measure_precession(m9, 9.9, 10.1)
+    row("Kerr frequencies and precessions",
+        "periapsis advance, near-circular r=10M prograde",
+        got, 2 * np.pi * (abs(Om_pro[0]) / Om_pro[2] - 1),
+        "vs 2 pi (Omega_phi/Omega_r - 1); O(e^2) formula error")
+
+    # -- spherical photon orbits ---------------------------------------------
+    from kerrgeo import spherical_photon_orbit
+
+    y0 = spherical_photon_orbit(m9, 2.6)
+    sol = trace(m9, y0, 60.0, rtol=1e-13, atol=1e-13,
+                events=[horizon_event(m9, eps=1e-3), escape_event(10.0)])
+    drift = np.abs(sol.y[1] - 2.6)
+    row("Spherical photon orbit (a=0.9, r=2.6M)",
+        "max |r - r0| over first 20 M", float(drift[sol.t <= 20.0].max()),
+        None, "holds the sphere at integration accuracy")
+    row("Spherical photon orbit (a=0.9, r=2.6M)",
+        "max |r - r0| by 60 M", float(drift.max()), None,
+        "unstable orbit: rounding e-folds every ~1.7 M until departure")
+
+    # -- energetics -----------------------------------------------------------
+    E_neg, Lz_neg = -0.1, -3.0
+    r_out = np.linspace(m9.r_ergo(np.pi / 2), 50.0, 400)
+    row("Kerr energetics",
+        "negative-energy orbit (E=-0.1): max R(r) outside the ergosphere",
+        float(separated.radial_potential(r_out, 0.9, E_neg, Lz_neg,
+                                         0.0, 1.0, 1.0).max()),
+        None, "R < 0 everywhere outside: E < 0 states are confined (Penrose)")
+
+    for a_spin, label in ((0.0, "a=0"), (0.998, "a=0.998")):
+        mm = KerrBL(a=a_spin)
+        _, E_isco, _ = circular_orbit(mm, mm.r_isco(True), True)
+        row("Kerr energetics", f"ISCO binding energy 1-E, {label}",
+            1.0 - E_isco,
+            1.0 - np.sqrt(8.0 / 9.0) if a_spin == 0.0 else 0.3210,
+            "radiative efficiency of accretion")
 
     # -- output -------------------------------------------------------------
     buf = io.StringIO()

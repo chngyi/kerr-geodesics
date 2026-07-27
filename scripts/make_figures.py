@@ -328,21 +328,324 @@ def fig_horizon(out):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# Stage 2: Kerr
+# ---------------------------------------------------------------------------
+
+def fig_frame_dragging(out):
+    """Frame dragging three ways: ZAMO spirals, a retrograde photon forced to
+    reverse, and the drag rate omega(r) against its integrated measurement."""
+    from kerrgeo import rhs, zamo_drop_state
+    from kerrgeo.measure import measure_phi_turnaround
+
+    m = KerrBL(a=0.9)
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(11.2, 5.0),
+                                   gridspec_kw={"wspace": 0.26})
+
+    # -- left: trajectories -------------------------------------------------
+    # Three ZAMO drops (Lz = 0), released 120 degrees apart: each spirals
+    # prograde purely because spacetime rotates under it.
+    for k in range(3):
+        y0 = zamo_drop_state(m, 6.0)
+        y0[3] = 2.0 * np.pi * k / 3.0
+        sol = trace(m, y0, 400.0, rtol=1e-12, atol=1e-12,
+                    events=[horizon_event(m)])
+        r, ph = sol.y[1], sol.y[3]
+        ax0.plot(r * np.cos(ph), r * np.sin(ph), color=CAT[0], lw=1.6,
+                 solid_capstyle="round", zorder=3,
+                 label="ZAMO drops ($L_z=0$)" if k == 0 else None)
+
+    # A retrograde photon (b = -3): sweeps backwards, is reversed at
+    # r_flip = 2M(1 + a/|b|), crosses the horizon corotating.
+    b = -3.0
+    y0 = photon_from_impact_parameter(m, r0=30.0, b=b)
+    sol = trace(m, y0, 300.0, rtol=1e-12, atol=1e-12,
+                events=[horizon_event(m)])
+    r, ph = sol.y[1], sol.y[3]
+    ax0.plot(r * np.cos(ph), r * np.sin(ph), color=CAT[1], lw=1.8,
+             linestyle=style.DASH, zorder=4, label=f"retrograde photon, $b=-3M$")
+    r_flip = 2.0 * (1.0 + 0.9 / abs(b))
+    ax0.add_patch(plt.Circle((0, 0), r_flip, fill=False, lw=1.0,
+                             edgecolor=CAT[1], linestyle=(0, (1.5, 2.5)),
+                             zorder=2))
+    ax0.annotate(r"$r_{\rm flip}=2M(1+a/|b|)$", (r_flip * 0.05, -r_flip - 0.75),
+                 color=CAT[1], fontsize=8.5, ha="center")
+
+    # Ergosphere drawn muted so the orange flip circle (which belongs to the
+    # photon's story) is the only orange ring.
+    style.draw_hole(ax0, m.r_plus)
+    ax0.add_patch(plt.Circle((0, 0), m.r_ergo(np.pi / 2), fill=False, lw=1.1,
+                             edgecolor=style.INK_MUTED,
+                             linestyle=(0, (4, 3)), zorder=4))
+    ax0.annotate("static limit", (-2.6, 2.2), color=style.INK_MUTED,
+                 fontsize=8.5, ha="right")
+    ax0.set_aspect("equal")
+    ax0.set_xlim(-8.5, 8.5)
+    ax0.set_ylim(-8.5, 8.5)
+    ax0.set_xlabel("x  [M]")
+    ax0.set_ylabel("y  [M]")
+    ax0.set_title("Frame dragging, a = 0.9M")
+    ax0.legend(loc="upper left")
+
+    # -- right: the drag rate, measured vs closed form ----------------------
+    rr = np.geomspace(m.r_plus * 1.001, 60.0, 400)
+    ax1.loglog(rr, m.omega(rr), color=style.INK, lw=1.8, zorder=3,
+               label=r"$\omega = 2aMr/A$ (closed form)")
+    ax1.loglog(rr, 1.8 / rr**3, color=CAT[2], lw=1.5, linestyle=style.DOT,
+               zorder=2, label=r"$2aM/r^3$ (gravitomagnetic dipole)")
+
+    y0 = zamo_drop_state(m, 40.0)
+    sol = trace(m, y0, 3000.0, rtol=1e-12, atol=1e-12,
+                events=[horizon_event(m)])
+    idx = np.unique(np.geomspace(1, sol.y.shape[1] - 1, 26).astype(int))
+    r_s = sol.y[1, idx]
+    om_s = np.array([rhs(0.0, sol.y[:, i], m)[3] / rhs(0.0, sol.y[:, i], m)[0]
+                     for i in idx])
+    ax1.loglog(r_s, om_s, "o", color=CAT[0], ms=5.0, zorder=4,
+               label=r"$d\phi/dt$ of an infalling ZAMO")
+
+    ax1.plot([m.r_plus], [m.Omega_H], "o", color=CAT[3], ms=7.0, zorder=5,
+             markeredgecolor=style.SURFACE, markeredgewidth=1.6)
+    ax1.annotate(r"$\Omega_H = a/2Mr_+$", (m.r_plus * 1.1, m.Omega_H * 1.12),
+                 color=CAT[3], fontsize=8.5)
+    ax1.set_xlabel("r  [M]")
+    ax1.set_ylabel(r"angular velocity  [$M^{-1}$]")
+    ax1.set_title(r"The drag rate $\omega(r)$, measured vs closed form")
+    ax1.legend(loc="lower left")
+    ax1.xaxis.set_major_locator(mpl.ticker.LogLocator(base=10.0))
+    ax1.xaxis.set_minor_formatter(mpl.ticker.NullFormatter())
+
+    fig.savefig(os.path.join(out, "frame_dragging.png"))
+    plt.close(fig)
+
+
+def fig_kerr_asymmetry(out):
+    """How the landmark radii and capture thresholds split with spin."""
+    from kerrgeo.analytic import kerr_critical_impact_parameter
+    from kerrgeo.measure import capture_threshold
+
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(11.2, 4.8),
+                                   gridspec_kw={"wspace": 0.24})
+
+    a_grid = np.linspace(0.0, 1.0, 400)
+    mets = [KerrBL(a=float(a)) for a in a_grid]
+
+    # Labels placed mid-curve where the curves are well separated -- at a = 1
+    # the horizon, prograde ISCO and prograde photon orbit all converge on
+    # r = M and edge labels would pile up unreadably.
+    curves = [
+        ("ISCO retrograde", [m.r_isco(False) for m in mets],
+         CAT[1], style.DASH, 0.42, 8.0, 17),
+        ("ISCO prograde", [m.r_isco(True) for m in mets],
+         CAT[0], style.SOLID, 0.13, 5.15, -16),
+        ("photon retrograde", [m.r_photon(False) for m in mets],
+         CAT[3], style.DASHDOT, 0.56, 3.95, 6),
+        ("photon prograde", [m.r_photon(True) for m in mets],
+         CAT[2], style.DOT, 0.24, 2.42, -8),
+        ("horizon $r_+$", [m.r_plus for m in mets],
+         style.INK_MUTED, style.SOLID, 0.13, 1.62, -3),
+    ]
+    for label, vals, color, ls, lx, ly, rot in curves:
+        ax0.plot(a_grid, vals, color=color, lw=1.7, linestyle=ls, zorder=3)
+        ax0.annotate(label, (lx, ly), color=color, fontsize=8.5,
+                     rotation=rot, rotation_mode="anchor")
+    ax0.axhline(2.0, color=CAT[4], lw=1.1, linestyle=style.FINEDOT, zorder=2)
+    ax0.annotate("static limit (equator)", (0.63, 2.1), color=CAT[4],
+                 fontsize=8.5)
+    ax0.set_xlim(0, 1)
+    ax0.set_ylim(0, 9.5)
+    ax0.set_xlabel("spin  a/M")
+    ax0.set_ylabel("r  [M]")
+    ax0.set_title("Landmark radii vs spin")
+
+    # -- right: capture thresholds, measured vs Bardeen ---------------------
+    bc_pro = [kerr_critical_impact_parameter(float(a), True) for a in a_grid]
+    bc_ret = [-kerr_critical_impact_parameter(float(a), False) for a in a_grid]
+    ax1.plot(a_grid, bc_ret, color=CAT[1], lw=1.7, linestyle=style.DASH,
+             zorder=3, label="retrograde $|b_c|$ (Bardeen)")
+    ax1.plot(a_grid, bc_pro, color=CAT[0], lw=1.7, zorder=3,
+             label="prograde $b_c$ (Bardeen)")
+
+    a_pts = (0.3, 0.6, 0.9)
+    for pro, color in ((True, CAT[0]), (False, CAT[1])):
+        pts = []
+        for a in a_pts:
+            m = KerrBL(a=a)
+            guess = abs(kerr_critical_impact_parameter(a, pro))
+            pts.append(capture_threshold(m, guess * 0.9, guess * 1.1,
+                                         r0=500.0, tol=1e-5, prograde=pro))
+        ax1.plot(a_pts, pts, "o", color=color, ms=6.5, zorder=4,
+                 markeredgecolor=style.SURFACE, markeredgewidth=1.4,
+                 label=("integrated (bisection)" if pro else None))
+
+    ax1.annotate(r"$3\sqrt{3}\,M$ at $a=0$", (0.03, 4.5),
+                 color=style.INK_MUTED, fontsize=8.5)
+    ax1.annotate("7M", (0.93, 7.15), color=CAT[1], fontsize=8.5)
+    ax1.annotate("2M", (0.93, 2.25), color=CAT[0], fontsize=8.5)
+    ax1.set_xlim(0, 1)
+    ax1.set_ylim(0, 7.6)
+    ax1.set_xlabel("spin  a/M")
+    ax1.set_ylabel(r"capture threshold  $|b_c|$  [M]")
+    ax1.set_title("Photon capture thresholds vs spin")
+    ax1.legend(loc="lower left")
+
+    fig.savefig(os.path.join(out, "kerr_asymmetry.png"))
+    plt.close(fig)
+
+
+def fig_spherical_photon(out):
+    """A spherical photon orbit: winds on a sphere, then the instability
+    that makes the shadow edge takes over."""
+    from scipy.optimize import brentq
+
+    from kerrgeo import spherical_photon_orbit
+    from kerrgeo.analytic import kerr_photon_orbit_constants
+    from kerrgeo.separated import polar_potential
+
+    m = KerrBL(a=0.9)
+    r0 = 2.6
+    xi, eta = kerr_photon_orbit_constants(r0, 0.9)
+    y0 = spherical_photon_orbit(m, r0)
+    # Terminate once the instability has fully taken over: after departure the
+    # photon plunges, and integrating the final approach to r_+ is pure cost.
+    sol = trace(m, y0, 60.0, rtol=1e-13, atol=1e-13,
+                events=[horizon_event(m, eps=1e-3), escape_event(10.0)])
+
+    fig, (ax0, ax1, ax2) = plt.subplots(1, 3, figsize=(13.2, 4.4),
+                                        gridspec_kw={"wspace": 0.3})
+
+    # -- x-y projection while it still holds the sphere ---------------------
+    hold = sol.t <= 42.0
+    r, th, ph = sol.y[1, hold], sol.y[2, hold], sol.y[3, hold]
+    x, y = r * np.sin(th) * np.cos(ph), r * np.sin(th) * np.sin(ph)
+    ax0.plot(x, y, color=CAT[0], lw=1.3, solid_capstyle="round", zorder=3)
+    style.draw_hole(ax0, m.r_plus, r_ergo=m.r_ergo(np.pi / 2))
+    ax0.set_aspect("equal")
+    ax0.set_xlim(-3.1, 3.1)
+    ax0.set_ylim(-3.1, 3.1)
+    ax0.set_xlabel("x  [M]")
+    ax0.set_ylabel("y  [M]")
+    ax0.set_title(f"Spherical photon orbit, r = {r0}M, a = 0.9M\n"
+                  f"$\\xi = {xi:.3f}$, $\\eta = {eta:.2f}$")
+
+    # -- the winding on the sphere ------------------------------------------
+    th_turn = brentq(lambda t: polar_potential(t, 0.9, 1.0, xi, eta, 0.0),
+                     1e-3, np.pi / 2 - 1e-6)
+    ax1.plot(np.degrees(ph), np.degrees(th), color=CAT[0], lw=1.3, zorder=3)
+    for t in (th_turn, np.pi - th_turn):
+        ax1.axhline(np.degrees(t), color=CAT[3], lw=1.1,
+                    linestyle=style.DASH, zorder=2)
+    ax1.annotate(r"polar turning points: $\Theta(\theta)=0$",
+                 (np.degrees(ph).min() + 6, np.degrees(th_turn) - 5),
+                 color=CAT[3], fontsize=8.5)
+    ax1.set_xlabel(r"$\phi$  [deg]")
+    ax1.set_ylabel(r"$\theta$  [deg]")
+    ax1.invert_yaxis()
+    ax1.set_title("Winds between the latitudes the\npolar potential allows")
+
+    # -- the instability ------------------------------------------------------
+    drift = np.abs(sol.y[1] - r0) + 1e-16
+    ax2.semilogy(sol.t, drift, color=CAT[0], lw=1.5, zorder=3)
+    lam_fit = np.array([15.0, 38.0])
+    d0 = np.interp(lam_fit[0], sol.t, drift)
+    kappa = np.log(np.interp(lam_fit[1], sol.t, drift) / d0) / np.ptp(lam_fit)
+    ax2.semilogy(lam_fit, d0 * np.exp(kappa * (lam_fit - lam_fit[0])),
+                 color=style.INK_MUTED, lw=1.2, linestyle=style.FINEDOT,
+                 zorder=2)
+    ax2.annotate(f"$e$-folds every {1 / kappa:.1f} M",
+                 (lam_fit[0] + 1.5, d0 * 8), color=style.INK_MUTED,
+                 fontsize=8.5, rotation=28)
+    ax2.set_xlabel(r"affine parameter  $\lambda$  [M]")
+    ax2.set_ylabel(r"$|r - r_0|$  [M]")
+    ax2.set_title("Unstable by design: rounding error\n$e$-folds until the photon departs")
+
+    fig.savefig(os.path.join(out, "spherical_photon.png"))
+    plt.close(fig)
+
+
+def fig_kerr_precession(out):
+    """The two Kerr precessions against the Wilkins frequencies."""
+    from kerrgeo.analytic import kerr_circular_frequencies
+    from kerrgeo.measure import measure_nodal_precession, measure_precession
+
+    m = KerrBL(a=0.9)
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(11.2, 4.7),
+                                   gridspec_kw={"wspace": 0.27})
+
+    # -- nodal (Lense-Thirring) ----------------------------------------------
+    rr = np.geomspace(6.0, 120.0, 200)
+    adv_exact = np.array([
+        2 * np.pi * (kerr_circular_frequencies(r, 0.9, True)[0]
+                     / kerr_circular_frequencies(r, 0.9, True)[1] - 1)
+        for r in rr])
+    ax0.loglog(rr, adv_exact, color=style.INK, lw=1.8, zorder=3,
+               label="exact (Wilkins frequencies)")
+    ax0.loglog(rr, 4 * np.pi * 0.9 / rr**1.5, color=CAT[2], lw=1.5,
+               linestyle=style.DOT, zorder=2,
+               label=r"weak field: $4\pi a\, r^{-3/2}$")
+    r_pts = np.array([6.0, 9.0, 14.0, 22.0, 35.0, 60.0, 100.0])
+    adv_meas = [measure_nodal_precession(m, r, Q=1e-6)[1] for r in r_pts]
+    ax0.loglog(r_pts, adv_meas, "o", color=CAT[0], ms=5.5, zorder=4,
+               markeredgecolor=style.SURFACE, markeredgewidth=1.2,
+               label="integrated orbits")
+    ax0.set_xlabel("orbit radius  r  [M]")
+    ax0.set_ylabel("node advance per polar period  [rad]")
+    ax0.set_title("Lense-Thirring nodal precession, a = 0.9M\n"
+                  "the orbital plane itself is dragged around the spin axis")
+    ax0.legend(loc="lower left")
+
+    # -- periapsis, prograde vs retrograde -----------------------------------
+    rr = np.geomspace(10.5, 120.0, 200)
+    for pro, color, ls, label in ((True, CAT[0], style.SOLID, "prograde"),
+                                  (False, CAT[1], style.DASH, "retrograde")):
+        exact = []
+        for r in rr:
+            Om_phi, _, Om_r = kerr_circular_frequencies(r, 0.9, pro)
+            exact.append(2 * np.pi * (abs(Om_phi) / Om_r - 1))
+        ax1.loglog(rr, exact, color=color, lw=1.7, linestyle=ls, zorder=3,
+                   label=f"{label} (exact)")
+        r_pts = np.array([10.5, 16.0, 25.0, 45.0, 80.0])
+        meas = [measure_precession(m, r * 0.99, r * 1.01, prograde=pro)
+                for r in r_pts]
+        ax1.loglog(r_pts, meas, "o", color=color, ms=5.5, zorder=4,
+                   markeredgecolor=style.SURFACE, markeredgewidth=1.2)
+    ax1.set_xlabel("orbit radius  r  [M]")
+    ax1.set_ylabel("periapsis advance per orbit  [rad]")
+    ax1.set_title("Periapsis advance splits with orbit direction\n"
+                  "same radius, same hole -- different precession")
+    ax1.legend(loc="lower left")
+
+    fig.savefig(os.path.join(out, "kerr_precession.png"))
+    plt.close(fig)
+
+
+ALL_FIGURES = (
+    ("photon_trajectories", fig_photon_trajectories),
+    ("deflection", fig_deflection),
+    ("precession", fig_precession),
+    ("conservation", fig_conservation),
+    ("horizon", fig_horizon),
+    ("frame_dragging", fig_frame_dragging),
+    ("kerr_asymmetry", fig_kerr_asymmetry),
+    ("spherical_photon", fig_spherical_photon),
+    ("kerr_precession", fig_kerr_precession),
+)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default=os.path.join(
         os.path.dirname(__file__), "..", "figures"))
+    ap.add_argument("--only", default=None,
+                    help="comma-separated figure names to regenerate")
     args = ap.parse_args()
     out = os.path.abspath(args.out)
     os.makedirs(out, exist_ok=True)
 
-    for name, fn in (
-        ("photon_trajectories", fig_photon_trajectories),
-        ("deflection", fig_deflection),
-        ("precession", fig_precession),
-        ("conservation", fig_conservation),
-        ("horizon", fig_horizon),
-    ):
+    wanted = set(args.only.split(",")) if args.only else None
+    for name, fn in ALL_FIGURES:
+        if wanted is not None and name not in wanted:
+            continue
         t0 = time.time()
         fn(out)
         print(f"  {name:22s} {time.time() - t0:6.1f}s")

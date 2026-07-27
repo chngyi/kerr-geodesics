@@ -26,6 +26,9 @@ from .hamiltonian import (
     photon_from_impact_parameter,
     circular_orbit,
     orbit_from_apsides,
+    zamo_drop_state,
+    spherical_photon_orbit,
+    spherical_orbit,
 )
 from .invariants import norm, energy, angular_momentum, carter, drift_report
 from .integrate import trace, rk4, gauss_legendre, Solution
@@ -35,6 +38,7 @@ __all__ = [
     "Metric", "KerrBL", "Schwarzschild",
     "rhs", "hamiltonian", "momenta_from_constants", "state_from_constants",
     "photon_from_impact_parameter", "circular_orbit", "orbit_from_apsides",
+    "zamo_drop_state", "spherical_photon_orbit", "spherical_orbit",
     "norm", "energy", "angular_momentum", "carter", "drift_report",
     "trace", "rk4", "gauss_legendre", "Solution",
     "analytic", "events", "measure", "separated",

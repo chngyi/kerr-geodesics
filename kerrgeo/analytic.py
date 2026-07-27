@@ -226,6 +226,95 @@ def mercury_precession_arcsec_per_century():
 # Kerr landmarks (used from stage 2 onward)
 # ---------------------------------------------------------------------------
 
+def kerr_photon_orbit_constants(r, a, M=1.0):
+    """(xi, eta) for the spherical photon orbit of Boyer-Lindquist radius r.
+
+    Kerr admits photon orbits at constant r for a whole *range* of radii,
+    r_ph(prograde) <= r <= r_ph(retrograde) -- not just the two equatorial
+    circles.  Each radius carries specific values of xi = Lz/E and
+    eta = Q/E^2 (Bardeen 1973):
+
+        xi  = [ M(r^2 - a^2) - r Delta ] / [ a (r - M) ]
+        eta = r^3 [ 4 M Delta - r (r - M)^2 ] / [ a^2 (r - M)^2 ]
+
+    obtained by solving R(r) = R'(r) = 0 for the two ratios.  At the
+    equatorial endpoints eta = 0 (no polar motion); in between eta > 0 and the
+    orbit winds on a sphere, filling an annulus between polar turning points.
+    A photon with exactly these constants asymptotically orbits forever; these
+    are the orbits whose instability makes the black-hole shadow edge.
+
+    Only the ratios xi, eta are meaningful for photons -- rescaling the affine
+    parameter rescales (E, Lz, Q) together -- which is why the shadow of a
+    black hole is independent of photon energy.
+
+    Undefined at a = 0 (the formulas are 0/0: with no spin every photon orbit
+    sits at r = 3M and xi becomes a free parameter), and singular at r = M
+    (reached only in the extremal prograde limit).
+    """
+    if abs(a) < 1e-12:
+        raise ValueError("xi, eta are undefined at a = 0; use r = 3M directly")
+    D = r * r - 2.0 * M * r + a * a
+    xi = (M * (r * r - a * a) - r * D) / (a * (r - M))
+    eta = r**3 * (4.0 * M * D - r * (r - M) ** 2) / (a * a * (r - M) ** 2)
+    return xi, eta
+
+
+def kerr_critical_impact_parameter(a, prograde=True, M=1.0):
+    """Capture threshold b_c for equatorial photons, signed.
+
+    This is xi evaluated at the equatorial photon-orbit radius.  Prograde
+    (co-rotating) photons return b > 0; retrograde b < 0.  The magnitudes are
+    *very* different: for a = M the prograde threshold is 2M while the
+    retrograde is 7M -- the hole is three and a half times "bigger" for light
+    that fights the spin than for light that surfs it.  This asymmetry is the
+    cleanest quantitative signature of frame dragging, and it is what shifts
+    the black-hole shadow sideways.
+
+    Reduces to +/- 3 sqrt(3) M at a = 0.
+    """
+    if abs(a) < 1e-12:
+        return (3.0 * np.sqrt(3.0) * M) * (1.0 if prograde else -1.0)
+    sign = -1.0 if prograde else 1.0
+    r_ph = 2.0 * M * (1.0 + np.cos((2.0 / 3.0) * np.arccos(sign * a / M)))
+    xi, _ = kerr_photon_orbit_constants(r_ph, a, M)
+    return xi
+
+
+def kerr_circular_frequencies(r, a, prograde=True, M=1.0):
+    """(Omega_phi, Omega_theta, Omega_r) for a circular equatorial orbit.
+
+    Coordinate-time frequencies of the azimuthal motion and of small
+    oscillations about the circle (Wilkins 1972; Merloni et al. 1999), with
+    the upper sign prograde:
+
+        Omega_phi   = +/- sqrt(M) / (r^{3/2} +/- a sqrt(M))
+        Omega_theta = Omega_phi sqrt(1 -/+ 4 a sqrt(M) r^{-3/2} + 3 a^2 r^{-2})
+        Omega_r     = Omega_phi sqrt(1 - 6M/r +/- 8 a sqrt(M) r^{-3/2} - 3 a^2 r^{-2})
+
+    In Schwarzschild all three degenerate pairwise consequences hold:
+    Omega_theta = Omega_phi exactly (orbital planes are fixed -- no frame
+    dragging), and Omega_r < Omega_phi is the periapsis advance.  Kerr splits
+    all three, and each splitting is an observable:
+
+      * Omega_phi - Omega_theta  is the Lense-Thirring nodal precession: the
+        orbital plane of an inclined orbit is dragged around the spin axis.
+      * Omega_phi - Omega_r      is the (relativistic) periapsis advance.
+      * Omega_r -> 0             marks the ISCO, where radial oscillations
+        cease to be restored.
+
+    Omega_phi is signed (negative for retrograde); the other two are returned
+    as positive frequencies.
+    """
+    s = 1.0 if prograde else -1.0
+    sq = np.sqrt(M)
+    Om_phi = s * sq / (r**1.5 + s * a * sq)
+    x = a * sq / r**1.5
+    Om_th = abs(Om_phi) * np.sqrt(1.0 - 4.0 * s * x + 3.0 * a * a / (r * r))
+    Om_r = abs(Om_phi) * np.sqrt(
+        1.0 - 6.0 * M / r + 8.0 * s * x - 3.0 * a * a / (r * r))
+    return Om_phi, Om_th, Om_r
+
+
 def kerr_shadow_boundary(a, theta_obs=np.pi / 2, n=720, M=1.0):
     """Analytic outline of the Kerr black hole shadow (Bardeen 1973).
 
@@ -262,9 +351,7 @@ def kerr_shadow_boundary(a, theta_obs=np.pi / 2, n=720, M=1.0):
     r2 = 2.0 * M * (1.0 + np.cos((2.0 / 3.0) * np.arccos(+abs(a) / M)))
     r = np.linspace(min(r1, r2), max(r1, r2), n // 2)
 
-    D = r * r - 2.0 * M * r + a * a
-    xi = (M * (r * r - a * a) - r * D) / (a * (r - M))
-    eta = r**3 * (4.0 * M * D - r * (r - M) ** 2) / (a * a * (r - M) ** 2)
+    xi, eta = kerr_photon_orbit_constants(r, a, M)
 
     st, ct = np.sin(theta_obs), np.cos(theta_obs)
     alpha = -xi / st

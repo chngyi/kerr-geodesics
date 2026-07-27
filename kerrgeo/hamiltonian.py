@@ -247,6 +247,114 @@ def circular_orbit(metric, r, prograde=True):
     return np.concatenate((x, p)), E, Lz
 
 
+def zamo_drop_state(metric, r0):
+    """A zero-angular-momentum particle released from radial rest at r0.
+
+    The cleanest statement of frame dragging.  With Lz = p_phi = 0 the
+    particle carries no angular momentum whatsoever, yet its azimuthal
+    velocity is
+
+        dphi/dt = g^{phi t} p_t / (g^{tt} p_t) = -g_tphi / g_phiphi = omega(r)
+
+    -- it corotates with the hole at exactly the frame-drag rate, spiralling
+    as it falls with no torque ever acting on it.  (The two expressions above
+    are equal by the 2x2 block-inverse identity, so `KerrBL.omega` gives the
+    same number by an independent formula -- a consistency check the tests
+    use.)
+
+    The energy is fixed by requiring the release to be from radial rest:
+    R(r0) = 0 with Lz = Q = 0 gives
+
+        E = r0 sqrt( Delta / [ (r0^2 + a^2)^2 - a^2 Delta ] ) = r0 sqrt(Delta/A)
+
+    which is also, not coincidentally, the redshift factor of the ZAMO frame.
+    """
+    a, M = getattr(metric, "a", 0.0), getattr(metric, "M", 1.0)
+    D = r0 * r0 - 2.0 * M * r0 + a * a
+    if D <= 0:
+        raise ValueError(f"r0 = {r0:g} is inside the horizon")
+    A = (r0 * r0 + a * a) ** 2 - a * a * D          # equatorial
+    E = r0 * np.sqrt(D / A)
+    x = np.array([0.0, r0, np.pi / 2, 0.0])
+    p = np.array([-E, 0.0, 0.0, 0.0])               # at the turning point exactly
+    return np.concatenate((x, p))
+
+
+def spherical_photon_orbit(metric, r):
+    """A photon on the (unstable) spherical orbit of constant BL radius r.
+
+    Kerr has photon orbits at every radius between the prograde and retrograde
+    equatorial circles, each with its own (xi, eta) from
+    `analytic.kerr_photon_orbit_constants`.  For eta > 0 the orbit leaves the
+    equatorial plane and winds on a sphere between polar turning points --
+    the fully three-dimensional generalisation of the Schwarzschild photon
+    sphere, and the skeleton on which the black-hole shadow is built.
+
+    Starts on the equator heading north.  Since R(r) = R'(r) = 0 there by
+    construction, p_r is set to exactly zero rather than computed through a
+    square root of a rounding-level quantity (same lesson as
+    `circular_orbit`).  Being unstable, the orbit will eventually peel off --
+    watching |r - r0| grow from ~1e-9 is a direct measurement of accumulated
+    integration error feeding the instability.
+    """
+    from .analytic import kerr_photon_orbit_constants
+
+    a = getattr(metric, "a", 0.0)
+    M = getattr(metric, "M", 1.0)
+    if abs(a) < 1e-12:
+        raise ValueError("for a = 0 use the equatorial photon sphere at r = 3M")
+    lo, hi = metric.r_photon(True), metric.r_photon(False)
+    if not (lo <= r <= hi):
+        raise ValueError(
+            f"no spherical photon orbit at r = {r:g}: the allowed range for "
+            f"a = {a:g} is [{lo:.4f}, {hi:.4f}]")
+    xi, eta = kerr_photon_orbit_constants(r, a, M)
+    if eta < 0:
+        raise ValueError(
+            f"eta = {eta:.4g} < 0 at r = {r:g}: this radius' orbit is not "
+            "reachable from the equator (it lies at the extreme prograde edge)")
+    x = np.array([0.0, r, np.pi / 2, 0.0])
+    p = np.array([-1.0, 0.0, np.sqrt(eta), xi])     # E = 1 normalisation
+    return np.concatenate((x, p))
+
+
+def spherical_orbit(metric, r, Q, prograde=True):
+    """A timelike orbit of constant BL radius r with Carter constant Q > 0:
+    an inclined circle, precessing about the spin axis.
+
+    Solves R(r) = 0, R'(r) = 0 for (E, Lz) at the given Q -- the same
+    conditions that define a circular orbit, but off the equator.  These are
+    the orbits on which Lense-Thirring nodal precession is measured cleanly:
+    r is exactly constant, so the node advance per polar period is the *only*
+    secular drift in the problem.
+
+    The inclination follows from Q: cos(i) = Lz / sqrt(Lz^2 + Q), so small Q
+    means nearly equatorial.  Returns (state, E, Lz); the state starts on the
+    equator heading north (p_theta = +sqrt(Q), exact since Theta(pi/2) = Q).
+    """
+    from scipy.optimize import fsolve
+
+    from .separated import radial_potential, radial_potential_deriv
+
+    a = getattr(metric, "a", 0.0)
+    M = getattr(metric, "M", 1.0)
+
+    _, E0, L0 = circular_orbit(metric, r, prograde)   # Q = 0 starting guess
+
+    def residual(v):
+        Ev, Lv = v
+        return [radial_potential(r, a, Ev, Lv, Q, 1.0, M),
+                radial_potential_deriv(r, a, Ev, Lv, Q, 1.0, M)]
+
+    (E, Lz), info, ok, msg = fsolve(residual, [E0, L0], full_output=True)
+    if ok != 1:
+        raise RuntimeError(f"spherical-orbit solve failed at r = {r:g}: {msg}")
+
+    x = np.array([0.0, r, np.pi / 2, 0.0])
+    p = np.array([-E, 0.0, np.sqrt(Q), Lz])
+    return np.concatenate((x, p)), float(E), float(Lz)
+
+
 def orbit_from_apsides(metric, r_peri, r_apo, prograde=True):
     """Equatorial bound timelike orbit with the given periapsis and apoapsis.
 

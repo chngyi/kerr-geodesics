@@ -9,10 +9,11 @@ Geometric units throughout: `G = c = 1`, lengths in units of `M`, signature
 
 ![Photon trajectories](figures/photon_trajectories.png)
 
-**Status.** Stage 1 (Schwarzschild) is complete and validated. The metric layer,
-integrators and diagnostics are already spin-general, so the Kerr machinery is
-in place and unit-tested; the Kerr *physics* study (frame dragging, the
-ergosphere) is the next stage. See [Roadmap](#roadmap).
+**Status.** Stages 1 (Schwarzschild) and 2 (Kerr exterior physics) are complete
+and validated: light deflection, precession, frame dragging, the ergosphere,
+spherical photon orbits and Lense–Thirring precession, each checked against an
+independent closed form. Next: the interior in a horizon-penetrating chart.
+See [Roadmap](#roadmap).
 
 ---
 
@@ -37,7 +38,7 @@ Then:
 ```bash
 pip install -r requirements.txt
 
-pytest -q                                        # 60 tests, ~25 s
+pytest -q                                        # 82 tests, ~2.5 min
 python scripts/run_validation.py --md VALIDATION.md   # regenerate the report
 python scripts/make_figures.py                   # regenerate figures/ (~80 s)
 ```
@@ -334,7 +335,102 @@ Hamiltonian vs separated Carter equations, generic inclined $a = 0.9$ orbit
 
 ---
 
-## 4. Coordinate singularities at the horizons
+## 4. Stage 2: the Kerr physics
+
+Same machinery, spin turned on. Every result below is an integrated
+measurement checked against an independent closed form — Bardeen's photon-orbit
+constants, the Wilkins orbital frequencies, the frame-drag rate.
+
+### Frame dragging, measured three ways
+
+![Frame dragging](figures/frame_dragging.png)
+
+- **A particle with zero angular momentum orbits anyway.** Drop a particle with
+  $L_z = 0$ — no angular momentum, no torque ever acts on it — and it spirals
+  prograde as it falls (left panel), because its azimuthal rate is pinned to
+  the frame-drag rate: $d\phi/dt = \omega(r) = 2aMr/A$ identically. The
+  integrated trajectory matches the closed form to `5.6e-17` (right panel),
+  and at the horizon everything crosses corotating at
+  $\Omega_H = a/2Mr_+$ (matched to `1.8e-6`, limited only by the $\epsilon$
+  cutoff). The ZAMO winds up 13.5 rad — over two full turns — before crossing.
+- **Light aimed backwards is turned around.** A captured retrograde photon's
+  azimuthal motion reverses at exactly
+
+  $$r_{\rm flip} = 2M\left(1 + \frac{a}{|b|}\right)$$
+
+  measured to `2e-15`. Note $r_{\rm flip} > 2M$: the photon is reversed
+  *outside* the static limit. The ergosphere statement — no observer can stay
+  non-rotating — is about timelike worldlines; a photon's $\phi$-motion is
+  softer and flips earlier.
+
+### The prograde/retrograde asymmetry
+
+![Kerr asymmetry](figures/kerr_asymmetry.png)
+
+Spin splits every landmark in two. At $a = 0.9M$ the capture thresholds are
+
+| | prograde | retrograde |
+|---|---:|---:|
+| $\|b_c\|$ measured (bisection) | `2.8444217` | `6.8323196` |
+| $\|b_c\|$ Bardeen closed form | `2.8444214` | `6.8323192` |
+
+— a factor 2.4 asymmetry, reaching $2M$ vs $7M$ (3.5×) at extremality. The
+same $|b| = 7M$ ray bends 0.81 rad prograde but 2.59 rad retrograde: the hole
+is effectively much bigger for light that fights the spin. (At $a = 0$ the two
+directions agree to `1e-10` — a reflection-symmetry control the tests enforce.)
+
+### Spherical photon orbits
+
+![Spherical photon orbit](figures/spherical_photon.png)
+
+Kerr has photon orbits at constant $r$ for a whole *range* of radii — the 3D
+generalisation of the photon sphere, and the skeleton of the black-hole
+shadow. The builder takes $(\xi, \eta)$ from Bardeen's $R = R' = 0$ conditions
+(verified to `1e-10` across the allowed range) and the integrated orbit holds
+$r$ to `1.7e-9` over 20 M — then departs, e-folding every **1.7 M**, because
+these orbits are unstable *by construction*. Both halves are physics: the hold
+validates the integrator, and the measured instability is the mechanism that
+makes these orbits the shadow edge.
+
+### Two precessions, one set of frequencies
+
+![Kerr precessions](figures/kerr_precession.png)
+
+The Wilkins frequencies $\Omega_\phi, \Omega_\theta, \Omega_r$ of circular
+orbits split pairwise with spin, and each splitting is measured:
+
+- $\Omega_\phi = \sqrt{M}/(r^{3/2} \pm a\sqrt{M})$ — Kepler's third law with a
+  spin correction — matched to `5e-15` by timing one integrated revolution.
+- **Lense–Thirring nodal precession** ($\Omega_\phi \ne \Omega_\theta$): the
+  orbital plane of an inclined orbit is dragged around the spin axis. Measured
+  from $\phi$ between successive ascending nodes of an exactly spherical
+  inclined orbit: matches to `8e-10`, with the $a = 0$ control giving ratio 1
+  (planes fixed without spin). This is the effect Gravity Probe B measured
+  around Earth — here at $10^{11}$ times the strength.
+- **Periapsis advance** ($\Omega_\phi \ne \Omega_r$): matches
+  $2\pi(\Omega_\phi/\Omega_r - 1)$ to the $O(e^2)$ accuracy of the
+  near-circular formula, and splits strongly with direction — at $r = 10M$,
+  1.81 rad/orbit prograde vs 10.05 retrograde.
+
+### Energetics: the ergosphere does real work
+
+Two results that set up stage 3:
+
+- **Negative-energy orbits exist, and only inside the ergosphere.** For
+  $E = -0.1$, $L_z = -3$ at $a = 0.9$ the radial potential is positive in a
+  band inside the static limit and negative everywhere outside: a
+  negative-energy fragment is causally committed to the hole. That is the
+  Penrose process in potential form — drop in, split, and the piece that
+  escapes carries out more energy than went in.
+- **The ISCO binding-energy ladder.** $1 - E_{\rm isco}$: 5.72%
+  (Schwarzschild), 15.6% ($a=0.9$), 32.1% ($a=0.998$, Thorne's
+  spin-equilibrium limit), climbing toward $1 - 1/\sqrt{3} = 42.3\%$ at
+  extremality. This is why accretion onto a spinning hole outshines nuclear
+  fusion by an order of magnitude.
+
+---
+
+## 5. Coordinate singularities at the horizons
 
 ![Horizon handling](figures/horizon.png)
 
@@ -399,9 +495,11 @@ kerrgeo/
   analytic.py         closed forms and exact quadratures to validate against
 scripts/
   run_validation.py   quantitative report -> VALIDATION.md
-  make_figures.py     the five figures in figures/
+  make_figures.py     the nine figures in figures/  (--only name to regenerate one)
   style.py            plotting style; CVD-checked palette
-tests/test_kerrgeo.py 60 tests
+tests/
+  test_kerrgeo.py     60 tests: machinery, conservation, Schwarzschild observables
+  test_kerr_stage2.py 22 tests: Kerr physics vs closed forms
 ```
 
 Schwarzschild is deliberately *not* a separate implementation — it is
@@ -413,9 +511,10 @@ Kerr code, where far fewer closed forms exist.
 
 - [x] **Stage 1 — Schwarzschild.** Deflection, photon sphere, capture threshold,
       precession. Validated.
-- [ ] **Stage 2 — Kerr physics.** Frame dragging, the ergosphere, prograde vs
-      retrograde asymmetry, spherical photon orbits. *Machinery is in place and
-      unit-tested at several spins; the study is next.*
+- [x] **Stage 2 — Kerr physics.** Frame dragging (ZAMO corotation, photon
+      $\phi$-reversal), capture-threshold asymmetry vs Bardeen, spherical
+      photon orbits and their instability, Lense–Thirring nodal precession,
+      negative-energy states in the ergosphere. Validated.
 - [ ] **Stage 3 — Interior.** Requires the Kerr–Schild chart (see above). CTCs
       near the ring, $r < 0$ region.
 - [ ] **Stage 4 — Backwards ray tracing.** `analytic.kerr_shadow_boundary`
@@ -426,7 +525,9 @@ Kerr code, where far fewer closed forms exist.
 
 - Carter, *Global structure of the Kerr family of gravitational fields*, Phys. Rev. **174** (1968) 1559 — the separation and the fourth constant.
 - Bardeen, Press & Teukolsky, ApJ **178** (1972) 347 — ISCO, photon orbits, circular-orbit $E$ and $L_z$.
-- Bardeen, in *Black Holes* (Les Houches, 1973) — the analytic shadow outline.
+- Bardeen, in *Black Holes* (Les Houches, 1973) — the analytic shadow outline and the photon-orbit constants $(\xi, \eta)$.
+- Wilkins, Phys. Rev. D **5** (1972) 814 — orbital frequencies of Kerr orbits (nodal and periapsis precession).
+- Penrose, Riv. Nuovo Cim. **1** (1969) 252 — energy extraction via negative-energy states in the ergosphere.
 - Keeton & Petters, Phys. Rev. D **72** (2005) 104006 — the deflection series beyond $4M/b$.
 - Hairer, Lubich & Wanner, *Geometric Numerical Integration* (2006) — Gauss–Legendre as a symplectic method for non-separable $H$.
 - Squire & Trapp, SIAM Rev. **40** (1998) 110 — complex-step differentiation.
