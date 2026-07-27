@@ -19,13 +19,32 @@ ergosphere) is the next stage. See [Roadmap](#roadmap).
 ## Quick start
 
 ```bash
-python -m venv .venv && .venv/Scripts/activate     # or source .venv/bin/activate
+git clone https://github.com/chngyi/kerr-geodesics
+cd kerr-geodesics
+python -m venv .venv
+```
+
+Activate it — pick the line for your shell:
+
+```bash
+source .venv/bin/activate      # macOS / Linux
+.venv\Scripts\Activate.ps1     # Windows, PowerShell
+.venv\Scripts\activate.bat     # Windows, cmd.exe
+```
+
+Then:
+
+```bash
 pip install -r requirements.txt
 
-pytest -q                              # 60 tests, ~25 s
-python scripts/run_validation.py       # quantitative report -> VALIDATION.md
-python scripts/make_figures.py         # figures/ (~80 s)
+pytest -q                                        # 60 tests, ~25 s
+python scripts/run_validation.py --md VALIDATION.md   # regenerate the report
+python scripts/make_figures.py                   # regenerate figures/ (~80 s)
 ```
+
+`run_validation.py` prints to stdout by default; `--md` is what writes the file.
+Both `VALIDATION.md` and `figures/` are committed, so you only need to
+regenerate them if you have changed the code.
 
 ```python
 import numpy as np
