@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ipynb_checkpoints/
+*.egg-info/
+.DS_Store
+
+# Figures are committed on purpose -- the README embeds them and they are part
+# of the validation record.  Scratch output is not.
+scratch/
+*.tmp
