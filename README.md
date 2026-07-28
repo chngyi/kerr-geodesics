@@ -9,10 +9,11 @@ Geometric units throughout: `G = c = 1`, lengths in units of `M`, signature
 
 ![Photon trajectories](figures/photon_trajectories.png)
 
-**Status.** Stages 1 (Schwarzschild) and 2 (Kerr exterior physics) are complete
-and validated: light deflection, precession, frame dragging, the ergosphere,
-spherical photon orbits and Lense–Thirring precession, each checked against an
-independent closed form. Next: the interior in a horizon-penetrating chart.
+**Status.** Stages 1–3 complete and validated: Schwarzschild observables, the
+Kerr exterior (frame dragging, ergosphere, Lense–Thirring), and the interior in
+a horizon-penetrating chart — through both horizons to the ring singularity,
+the negative-r sheet, and the closed-timelike-curve region, each claim checked
+against an independent closed form. Remaining: backwards ray tracing.
 See [Roadmap](#roadmap).
 
 ---
@@ -38,7 +39,7 @@ Then:
 ```bash
 pip install -r requirements.txt
 
-pytest -q                                        # 82 tests, ~2.5 min
+pytest -q                                        # 97 tests, ~4 min
 python scripts/run_validation.py --md VALIDATION.md   # regenerate the report
 python scripts/make_figures.py                   # regenerate figures/ (~80 s)
 ```
@@ -476,7 +477,95 @@ $g_{\phi\phi} < 0$ actually lives.
 This is why `Metric` is an abstract, pluggable object rather than hard-coded BL:
 **stage 3 is a new metric subclass, not a rewrite.** Implement `ginv` with
 analytic operations, declare which coordinates are cyclic, and everything
-else — integrators, events, invariants, diagnostics — works unchanged.
+else — integrators, events, invariants, diagnostics — works unchanged. The
+next section is that subclass in action.
+
+---
+
+## 6. Stage 3: through the horizons into the interior
+
+The promised chart is [`KerrIngoing`](kerrgeo/metrics/kerr_schild.py) — Kerr in
+ingoing Kerr coordinates, defined by relabelling time along infalling light:
+
+$$dv = dt + \frac{r^2+a^2}{\Delta}dr, \qquad d\tilde\phi = d\phi + \frac{a}{\Delta}dr$$
+
+Transforming the BL inverse metric, **every $1/\Delta$ cancels algebraically**
+(the derivation is worked in the module docstring), leaving
+
+$$g^{vv} = \frac{a^2\sin^2\theta}{\Sigma},\quad
+g^{vr} = \frac{r^2+a^2}{\Sigma},\quad
+g^{v\tilde\phi} = g^{r\tilde\phi} = \frac{a}{\Sigma},\quad
+g^{rr} = \frac{\Delta}{\Sigma},\quad
+g^{\theta\theta} = \frac{1}{\Sigma},\quad
+g^{\tilde\phi\tilde\phi} = \frac{1}{\Sigma\sin^2\theta}$$
+
+— *simpler* than Boyer–Lindquist, regular at both horizons, and valid for
+$r < 0$. Because the relabelling only mixes $t, \phi$ with functions of $r$,
+the Killing vectors are unchanged: $E$, $L_z$, and Carter's $Q$ keep their
+values and their formulas, and every diagnostic works verbatim. The two charts
+agree on a shared geodesic to **2e-13 in all eight phase-space components**
+in the exterior overlap.
+
+One numerical lesson repeats from stage 1: the ingoing radial momentum is
+$p_r = (P - \sqrt{R})/\Delta$, which cancels catastrophically near the
+horizon. The conjugate form $p_r = K/(P + \sqrt{R})$ is algebraically
+identical and manifestly finite everywhere — same disease, same cure, as the
+periapsis initial conditions.
+
+### Crossing
+
+![Horizon crossing](figures/horizon_crossing.png)
+
+The same infalling particle, two clocks: BL $t$ diverges at $r_+$ (left, the
+chart running out of numbers), while ingoing $v$ passes through $r_+$ **and**
+$r_-$ and only ends on the ring. Through both crossings the norm drifts by
+`6e-12` and $E$, $L_z$ by exactly zero; the whole 200 M trajectory costs
+~3000 RHS evaluations — crossing horizons in the right chart is numerically
+*unremarkable*, which is the point.
+
+The sharpest test is an exact solution: in this chart the ingoing principal
+null rays are $r = r_0 - \lambda$ at constant $(v, \theta, \tilde\phi)$ —
+straight coordinate lines through $r_+$, $r_-$, and the disk. The integrator
+reproduces this to **3e-13 over the whole passage** into the negative-r sheet.
+
+Two facts about who gets in and how far, both checked:
+
+- $R(r{=}0) = -a^2 Q$, so **crossing the disk into $r<0$ requires $Q < 0$** —
+  the "vortical" geodesics confined to cones about the axis (the principal
+  rays have $Q = -a^2\cos^4\theta_0$, verified). Anything with
+  equator-crossing polar motion bounces or dies on the ring.
+- A particle with an inner turning point turns around below $r_-$, becomes
+  outgoing — and stalls at the Cauchy horizon from below: the *ingoing* chart
+  covers infalling crossings only, and $v$ diverges for outgoing ones exactly
+  as BL $t$ did at $r_+$. Continuing that worldline needs an outgoing
+  extension (a different universe in the maximal diagram). The chart tells
+  you its own limits, in the same language as before.
+
+### The closed timelike curves
+
+![Interior map](figures/interior_map.png)
+
+The causal endpoint of the project. The azimuthal circles — closed by
+$\tilde\phi$'s periodicity — are timelike where $g_{\tilde\phi\tilde\phi} < 0$,
+and the map shows exactly where that happens: a lobe **hugging the ring on the
+negative-r sheet**, equatorial band $r \in [-0.947, -0.001]$ at $a = 0.9$,
+with the inner edge matching the real root of $r^3 + a^2r + 2a^2M = 0$. On the
+entire $r > 0$ sheet, $g_{\phi\phi} > 0$ everywhere (grid-verified): the
+exterior is causally clean, and the pathology hides behind both horizons *and*
+the disk.
+
+Riding a loop at $r = -0.5$ on the equator returns you to the same event —
+same $v$, same everything — after **9.3 M of proper time** (for a solar-mass
+hole, ~46 μs of aging per loop into your own past). These circles are
+accelerated worldlines, not geodesics; but geodesics do *traverse* the region:
+the vortical ray at $\theta_0 = 80°$ passes straight through the CTC band and
+out into the negative-r asymptotic domain.
+
+Worth saying plainly: none of this is reachable from outside. The CTC region
+is behind the Cauchy horizon, where strong-cosmic-censorship arguments (mass
+inflation — the blueshift instability of $r_-$ itself) suggest the idealised
+Kerr interior is not what a real collapse produces. What the integrator
+explores is the maximally extended *vacuum* solution, on its own terms.
 
 ---
 
@@ -486,6 +575,8 @@ else — integrators, events, invariants, diagnostics — works unchanged.
 kerrgeo/
   metrics/base.py     Metric ABC; complex-step derivatives; cyclic-coordinate handling
   metrics/kerr.py     Kerr in Boyer-Lindquist (a=0 gives Schwarzschild)
+  metrics/kerr_schild.py  ingoing Kerr chart: horizons, interior, r<0, CTCs;
+                      BL <-> ingoing transfer; exact principal null rays
   hamiltonian.py      Hamilton's equations; building initial conditions
   invariants.py       norm, E, Lz, Carter Q; drift reporting
   integrate.py        RK4, DOP853, Gauss-Legendre symplectic; Solution type
@@ -500,6 +591,7 @@ scripts/
 tests/
   test_kerrgeo.py     60 tests: machinery, conservation, Schwarzschild observables
   test_kerr_stage2.py 22 tests: Kerr physics vs closed forms
+  test_kerr_stage3.py 15 tests: chart agreement, horizon crossing, interior, CTCs
 ```
 
 Schwarzschild is deliberately *not* a separate implementation — it is
@@ -515,8 +607,10 @@ Kerr code, where far fewer closed forms exist.
       $\phi$-reversal), capture-threshold asymmetry vs Bardeen, spherical
       photon orbits and their instability, Lense–Thirring nodal precession,
       negative-energy states in the ergosphere. Validated.
-- [ ] **Stage 3 — Interior.** Requires the Kerr–Schild chart (see above). CTCs
-      near the ring, $r < 0$ region.
+- [x] **Stage 3 — Interior.** Ingoing Kerr chart regular at both horizons;
+      BL/ingoing agreement to 2e-13; exact principal-null-ray test through
+      to $r<0$; CTC region mapped and traversed; Cauchy-horizon stall
+      behaviour pinned. Validated.
 - [ ] **Stage 4 — Backwards ray tracing.** `analytic.kerr_shadow_boundary`
       already provides the Bardeen (1973) analytic shadow outline to validate a
       rendered image against.
@@ -528,6 +622,8 @@ Kerr code, where far fewer closed forms exist.
 - Bardeen, in *Black Holes* (Les Houches, 1973) — the analytic shadow outline and the photon-orbit constants $(\xi, \eta)$.
 - Wilkins, Phys. Rev. D **5** (1972) 814 — orbital frequencies of Kerr orbits (nodal and periapsis precession).
 - Penrose, Riv. Nuovo Cim. **1** (1969) 252 — energy extraction via negative-energy states in the ergosphere.
+- Carter, Phys. Rev. **174** (1968) — also the source for the interior causal structure and the CTC region near the ring.
+- Poisson & Israel, Phys. Rev. D **41** (1990) 1796 — mass inflation: why the real Cauchy horizon is probably singular.
 - Keeton & Petters, Phys. Rev. D **72** (2005) 104006 — the deflection series beyond $4M/b$.
 - Hairer, Lubich & Wanner, *Geometric Numerical Integration* (2006) — Gauss–Legendre as a symplectic method for non-separable $H$.
 - Squire & Trapp, SIAM Rev. **40** (1998) 110 — complex-step differentiation.

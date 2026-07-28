@@ -619,6 +619,165 @@ def fig_kerr_precession(out):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# Stage 3: the interior
+# ---------------------------------------------------------------------------
+
+def fig_horizon_crossing(out):
+    """The chart handoff: BL time diverges at r_+, ingoing v sails through --
+    and the trajectory continues through both horizons to where the physics
+    actually ends."""
+    from kerrgeo import (KerrIngoing, bl_to_ingoing, principal_null_ingoing,
+                         zamo_drop_state)
+    from kerrgeo.events import negative_r_escape_event, ring_event
+    from kerrgeo.invariants import drift_report
+
+    a = 0.9
+    mi = KerrIngoing(a=a)
+    mb = KerrBL(a=a)
+    rp, rm = mi.r_plus, mi.r_minus
+
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(11.2, 4.8),
+                                   gridspec_kw={"wspace": 0.25})
+
+    # -- left: the same infall in both time coordinates ----------------------
+    y0_bl = zamo_drop_state(mb, 8.0)
+    sol_bl = trace(mb, y0_bl, 200.0, rtol=1e-12, atol=1e-12,
+                   events=[horizon_event(mb, eps=1e-7)])
+    y0_in = bl_to_ingoing(mi, y0_bl)
+    sol_in = trace(mi, y0_in, 200.0, rtol=1e-12, atol=1e-12,
+                   events=[ring_event(mi, eps=1e-3)])
+
+    # Offset both clocks to zero at release so the curves are comparable.
+    ax0.plot(sol_bl.y[1], sol_bl.y[0] - sol_bl.y[0, 0], color=CAT[1],
+             lw=1.8, linestyle=style.DASH, zorder=3,
+             label="Boyer-Lindquist  t")
+    ax0.plot(sol_in.y[1], sol_in.y[0] - sol_in.y[0, 0], color=CAT[0],
+             lw=1.8, zorder=4, label="ingoing Kerr  v")
+    for rx, name in ((rp, r"$r_+$"), (rm, r"$r_-$")):
+        ax0.axvline(rx, color=style.INK_MUTED, lw=0.9,
+                    linestyle=style.FINEDOT, zorder=1)
+        ax0.annotate(name, (rx + 0.08, 105), color=style.INK_MUTED,
+                     fontsize=9)
+    ax0.plot([sol_in.y[1, -1]], [sol_in.y[0, -1] - sol_in.y[0, 0]], "o",
+             color=CAT[3], ms=7, zorder=5,
+             markeredgecolor=style.SURFACE, markeredgewidth=1.5)
+    ax0.annotate("ring singularity\n(the genuine end)",
+                 (0.35, sol_in.y[0, -1] - sol_in.y[0, 0] - 4), color=CAT[3],
+                 fontsize=8.5)
+    ax0.set_xlim(0, 8.2)
+    ax0.set_ylim(0, 120)
+    ax0.invert_xaxis()                       # infall reads left to right
+    ax0.set_xlabel("r  [M]")
+    ax0.set_ylabel("time coordinate  [M]")
+    ax0.set_title("One infalling particle, two clocks")
+    ax0.legend(loc="upper left")
+
+    # -- right: r(lambda) through everything ---------------------------------
+    ax1.plot(sol_in.t, sol_in.y[1], color=CAT[0], lw=1.8, zorder=4,
+             label="equatorial infall (timelike)")
+    y0p = principal_null_ingoing(mi, 8.0, np.radians(80))
+    solp = trace(mi, y0p, 12.0, rtol=1e-13, atol=1e-13,
+                 events=[negative_r_escape_event(-3.0)])
+    ax1.plot(solp.t, solp.y[1], color=CAT[2], lw=1.8, linestyle=style.DOT,
+             zorder=3, label=r"vortical photon ($Q<0$, through the disk)")
+    for ry, name in ((rp, r"$r_+$"), (rm, r"$r_-$"), (0.0, "disk  r = 0")):
+        ax1.axhline(ry, color=style.INK_MUTED, lw=0.9,
+                    linestyle=style.FINEDOT, zorder=1)
+        ax1.annotate(name, (0.4, ry + 0.12), color=style.INK_MUTED,
+                     fontsize=8.5)
+    d = drift_report(sol_in.y[:, sol_in.y[1] > rm * 0.99], mi, mu=1.0)
+    ax1.annotate("through both horizons:\n"
+                 rf"$|\Delta$norm$| < ${d['norm']:.0e},  "
+                 r"$\Delta E = \Delta L_z = 0$",
+                 (12.5, 5.6), fontsize=8.5, color=style.INK_MUTED)
+    ax1.set_xlim(0, 26)
+    ax1.set_ylim(-3.2, 8.2)
+    ax1.set_xlabel(r"affine parameter  $\lambda$  [M]")
+    ax1.set_ylabel("r  [M]")
+    ax1.set_title("r($\\lambda$) is smooth through both horizons")
+    ax1.legend(loc="upper right")
+
+    fig.savefig(os.path.join(out, "horizon_crossing.png"))
+    plt.close(fig)
+
+
+def fig_interior_map(out):
+    """The causal map of the interior, and the CTC loop proper period."""
+    from kerrgeo import KerrIngoing
+
+    a = 0.9
+    mi = KerrIngoing(a=a)
+    rp, rm = mi.r_plus, mi.r_minus
+
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(11.2, 4.8),
+                                   gridspec_kw={"wspace": 0.26,
+                                                "width_ratios": [1.35, 1.0]})
+
+    # -- left: (r, theta) causal map -----------------------------------------
+    rr = np.linspace(-1.25, 3.0, 700)
+    th = np.linspace(0.02, np.pi - 0.02, 500)
+    Rg, Tg = np.meshgrid(rr, th)
+    gpp = mi.g_phiphi(Rg, Tg)
+
+    # CTC region: a filled patch, labelled directly.
+    ax0.contourf(Rg, np.degrees(Tg), (gpp < 0).astype(float),
+                 levels=[0.5, 1.5], colors=[CAT[3]], alpha=0.30, zorder=2)
+    ax0.contour(Rg, np.degrees(Tg), gpp, levels=[0.0], colors=[CAT[3]],
+                linewidths=1.4, zorder=3)
+    ax0.annotate("closed timelike curves\n$g_{\\phi\\phi}<0$", (-0.72, 118),
+                 color=CAT[3], fontsize=8.5, ha="center", zorder=6)
+
+    # Ergosphere boundary r_E(theta) and the static limit shading direction.
+    th_line = np.linspace(0.02, np.pi - 0.02, 300)
+    ax0.plot(mi.M + np.sqrt(mi.M**2 - a * a * np.cos(th_line) ** 2),
+             np.degrees(th_line), color=CAT[1], lw=1.4,
+             linestyle=style.DASH, zorder=3)
+    ax0.annotate("ergosphere", (2.15, 96), color=CAT[1], fontsize=8.5)
+
+    for rx, name in ((rp, "$r_+$"), (rm, "$r_-$")):
+        ax0.axvline(rx, color=style.INK_MUTED, lw=1.1, zorder=3)
+        ax0.annotate(name, (rx + 0.04, 6), color=style.INK_MUTED, fontsize=9)
+    ax0.axvline(0.0, color=style.INK, lw=1.0, linestyle=style.FINEDOT,
+                zorder=3)
+    ax0.annotate("disk r = 0", (0.03, 168), color=style.INK, fontsize=8.5,
+                 rotation=90)
+    ax0.plot([0.0], [90.0], "o", color=style.INK, ms=8, zorder=6,
+             markeredgecolor=style.SURFACE, markeredgewidth=1.6)
+    ax0.annotate("ring singularity", (0.09, 86), color=style.INK, fontsize=8.5,
+                 zorder=6)
+
+    # The two stage-3 trajectories, in this plane.
+    ax0.plot([3.0, -1.25], [80, 80], color=CAT[2], lw=1.8,
+             linestyle=style.DOT, zorder=5)
+    ax0.annotate("vortical photon", (1.62, 74), color=CAT[2], fontsize=8.5)
+    ax0.plot([3.0, 0.02], [90, 90], color=CAT[0], lw=1.8, zorder=5,
+             solid_capstyle="round")
+    ax0.annotate("equatorial infall", (1.35, 94), color=CAT[0], fontsize=8.5)
+
+    ax0.set_xlabel("r  [M]")
+    ax0.set_ylabel(r"$\theta$  [deg]")
+    ax0.set_ylim(180, 0)
+    ax0.set_title("Causal map of the interior, a = 0.9M")
+
+    # -- right: proper period of the closed loops ----------------------------
+    rr = np.linspace(-1.05, -0.005, 600)
+    for th_deg, color, ls in ((90, CAT[3], style.SOLID),
+                              (80, CAT[0], style.DASH),
+                              (70, CAT[2], style.DOT)):
+        tau = mi.ctc_loop_proper_time(rr, np.radians(th_deg))
+        ax1.plot(rr, tau, color=color, lw=1.7, linestyle=ls,
+                 label=rf"$\theta = {th_deg}^\circ$")
+    ax1.set_xlabel("r  [M]")
+    ax1.set_ylabel(r"proper time per loop  $2\pi\sqrt{-g_{\phi\phi}}$  [M]")
+    ax1.set_title("Proper time to ride a closed loop once")
+    ax1.legend(loc="upper left")
+    ax1.set_ylim(0, 6)
+
+    fig.savefig(os.path.join(out, "interior_map.png"))
+    plt.close(fig)
+
+
 ALL_FIGURES = (
     ("photon_trajectories", fig_photon_trajectories),
     ("deflection", fig_deflection),
@@ -629,6 +788,8 @@ ALL_FIGURES = (
     ("kerr_asymmetry", fig_kerr_asymmetry),
     ("spherical_photon", fig_spherical_photon),
     ("kerr_precession", fig_kerr_precession),
+    ("horizon_crossing", fig_horizon_crossing),
+    ("interior_map", fig_interior_map),
 )
 
 
@@ -654,5 +815,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 

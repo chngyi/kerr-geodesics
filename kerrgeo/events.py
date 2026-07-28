@@ -62,6 +62,43 @@ def horizon_event(metric, eps=1e-6, terminal=True):
     return ev
 
 
+def ring_event(metric, eps=1e-3, terminal=True):
+    """Fires near the ring singularity, where Sigma = r^2 + a^2 cos^2 -> 0.
+
+    This is the *genuine* singularity -- the Kretschmann scalar diverges as
+    1/Sigma^6 -- so unlike the horizons there is no chart that continues
+    through it.  Termination here is physics, not a coordinate artefact.
+    Only equatorial approaches can reach it: off the equator Sigma >= a^2
+    cos^2(theta) > 0 and the geodesic threads the disk instead.
+    """
+    a = getattr(metric, "a", 0.0)
+
+    def ev(lam, y, *args):
+        r, th = y[1], y[2]
+        return r * r + a * a * np.cos(th) ** 2 - eps * eps
+
+    ev.terminal = terminal
+    ev.direction = -1.0
+    return ev
+
+
+def negative_r_escape_event(r_min=-50.0, terminal=True):
+    """Fires when the geodesic sails deep into the negative-r sheet.
+
+    In the maximally extended Kerr interior, passing through the r = 0 disk
+    leads to an asymptotically flat region of *negative* r (where the mass
+    reads as negative).  A geodesic getting here has genuinely left through
+    the ring.
+    """
+
+    def ev(lam, y, *args):
+        return y[1] - r_min
+
+    ev.terminal = terminal
+    ev.direction = -1.0
+    return ev
+
+
 def escape_event(r_max, terminal=True):
     """Fires when the geodesic gets out to r_max -- i.e. it escaped."""
 

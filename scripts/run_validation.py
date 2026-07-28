@@ -250,6 +250,70 @@ def main():
             1.0 - np.sqrt(8.0 / 9.0) if a_spin == 0.0 else 0.3210,
             "radiative efficiency of accretion")
 
+    # ======================================================================
+    # Stage 3: the interior, in ingoing Kerr coordinates
+    # ======================================================================
+    from scipy.optimize import brentq
+
+    from kerrgeo import (KerrIngoing, bl_to_ingoing, ingoing_to_bl,
+                         principal_null_ingoing, zamo_drop_state)
+    from kerrgeo.events import negative_r_escape_event, ring_event
+    from kerrgeo.invariants import drift_report as _drift
+
+    mi = KerrIngoing(a=0.9)
+
+    # chart overlap
+    y0_bl = zamo_drop_state(mk, 8.0)
+    y0_in = bl_to_ingoing(mi, y0_bl)
+    sb = trace(mk, y0_bl, 20.0, rtol=1e-13, atol=1e-13)
+    si = trace(mi, y0_in, 20.0, rtol=1e-13, atol=1e-13)
+    row("Ingoing chart vs BL (a=0.9)",
+        "same geodesic, both charts, endpoint state diff at lam=20",
+        float(np.abs(ingoing_to_bl(mi, si.y[:, -1]) - sb.y[:, -1]).max()),
+        None, "all 8 phase-space components")
+
+    # smooth double crossing
+    sol = trace(mi, y0_in, 200.0, rtol=1e-12, atol=1e-12,
+                events=[ring_event(mi, eps=1e-3)])
+    lam_rm = sol.t[np.argmin(np.abs(sol.y[1] - mi.r_minus))]
+    d_thru = _drift(sol.y[:, sol.t <= lam_rm + 0.05], mi, mu=1.0)
+    row("Horizon crossing (a=0.9)", "norm drift through r+ AND r-",
+        d_thru["norm"], None, "E and Lz drift exactly 0; BL cannot represent this")
+    row("Horizon crossing (a=0.9)", "termination radius (ring approach)",
+        float(sol.y[1, -1]), 1e-3, "stops only at the genuine singularity")
+
+    # exact principal null ray
+    y0p = principal_null_ingoing(mi, 5.0, np.radians(80))
+    solp = trace(mi, y0p, 12.0, rtol=1e-13, atol=1e-13,
+                 events=[negative_r_escape_event(-4.9)])
+    row("Principal null ray (exact solution)",
+        "max |r - (r0 - lambda)| through r+, r-, disk, to r=-4.9",
+        float(np.abs(solp.y[1] - (5.0 - solp.t)).max()), None,
+        "chart-adapted ray: dr/dlambda = -1 exactly")
+    row("Principal null ray (exact solution)",
+        "max drift in (v, theta, phi~)",
+        float(max(np.abs(solp.y[i] - y0p[i]).max() for i in (0, 2, 3))),
+        None, "all three frozen along the exact solution")
+
+    # CTCs
+    edge = brentq(lambda r: r**3 + 0.81 * r + 2 * 0.81, -1.5, -0.5)
+    rr = np.linspace(-1.5, -1e-3, 4000)
+    band = rr[mi.g_phiphi(rr, np.pi / 2) < 0]
+    row("Closed timelike curves (a=0.9)",
+        "equatorial CTC band inner edge", float(band.min()), float(edge),
+        "vs real root of r^3 + a^2 r + 2 a^2 M = 0")
+    r_pos = np.linspace(1e-3, 30.0, 800)
+    th_g = np.linspace(0.01, np.pi - 0.01, 200)
+    Rg, Tg = np.meshgrid(r_pos, th_g)
+    row("Closed timelike curves (a=0.9)",
+        "min g_phiphi over the whole r>0 sheet",
+        float(mi.g_phiphi(Rg, Tg).min()), None,
+        "positive everywhere: no CTCs outside the ring")
+    row("Closed timelike curves (a=0.9)",
+        "proper time to ride the loop at r=-0.5 (equator)",
+        float(mi.ctc_loop_proper_time(-0.5)), None,
+        "finite, order M: return to the same event after this much aging")
+
     # -- output -------------------------------------------------------------
     buf = io.StringIO()
     w = buf.write

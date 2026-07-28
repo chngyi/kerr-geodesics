@@ -18,6 +18,13 @@ Quick start
 
 from .metrics.base import Metric
 from .metrics.kerr import KerrBL, Schwarzschild
+from .metrics.kerr_schild import (
+    KerrIngoing,
+    bl_to_ingoing,
+    ingoing_to_bl,
+    principal_null_ingoing,
+    state_from_constants_ingoing,
+)
 from .hamiltonian import (
     rhs,
     hamiltonian,
@@ -36,6 +43,8 @@ from . import analytic, events, measure, separated
 
 __all__ = [
     "Metric", "KerrBL", "Schwarzschild",
+    "KerrIngoing", "bl_to_ingoing", "ingoing_to_bl",
+    "principal_null_ingoing", "state_from_constants_ingoing",
     "rhs", "hamiltonian", "momenta_from_constants", "state_from_constants",
     "photon_from_impact_parameter", "circular_orbit", "orbit_from_apsides",
     "zamo_drop_state", "spherical_photon_orbit", "spherical_orbit",
