@@ -314,6 +314,49 @@ def main():
         float(mi.ctc_loop_proper_time(-0.5)), None,
         "finite, order M: return to the same event after this much aging")
 
+    # ======================================================================
+    # Stage 4: the ray tracer
+    # ======================================================================
+    from kerrgeo import render as RD
+
+    # batch integrator vs the reference implementation
+    rng = np.random.default_rng(7)
+    worst = 0.0
+    for _ in range(30):
+        yr = np.array([0.0, rng.uniform(2.2, 40.0), rng.uniform(0.3, 2.8),
+                       rng.uniform(0.0, 6.0), -1.0, rng.uniform(-0.5, 0.5),
+                       rng.uniform(-3.0, 3.0), rng.uniform(-6.0, 6.0)])
+        worst = max(worst, np.abs(rhs(0.0, yr, mk)
+                                  - RD._batch_rhs(yr.reshape(8, 1), 0.9, 1.0)[:, 0]).max())
+    row("Ray tracer (a=0.9)", "batch RHS vs kerrgeo.rhs, 30 random states",
+        worst, None, "duplicated physics pinned to the reference")
+
+    # shadow boundary vs Bardeen, both inclinations
+    for th_deg in (90, 60):
+        th_o = np.radians(th_deg)
+        ac_s, bc_s = analytic.kerr_shadow_boundary(0.9, th_o, n=40000)
+        psis = np.linspace(0, 2 * np.pi, 16, endpoint=False)
+        al_s, be_s = RD.shadow_edges(psis, 100.0, th_o, 0.9, tol=1e-4)
+        dev = max(np.hypot(ac_s - x, bc_s - y).min()
+                  for x, y in zip(al_s, be_s))
+        row("Ray tracer (a=0.9)",
+            f"shadow boundary vs Bardeen, 16 angles, theta_obs={th_deg}",
+            float(dev), None, "max deviation; bisection tol 1e-4 M")
+
+    al_s, be_s = RD.shadow_edges(
+        np.linspace(0, 2 * np.pi, 8, endpoint=False) + 0.3,
+        100.0, np.pi / 2, 0.0, tol=1e-4)
+    r_edge = np.hypot(al_s, be_s)
+    row("Ray tracer (a=0.9)", "a=0 shadow radius (8 angles)",
+        float(r_edge.mean()), 3 * np.sqrt(3.0),
+        f"roundness {np.ptp(r_edge):.1e} M")
+
+    g_app = RD.doppler_factor(6.0, +4.0, 0.9)
+    g_rec = RD.doppler_factor(6.0, -4.0, 0.9)
+    row("Ray tracer (a=0.9)", "disk brightness asymmetry (g_app/g_rec)^4 at r=6M",
+        float((g_app / g_rec) ** 4), None,
+        "Doppler beaming: approaching side ~8x brighter at this radius")
+
     # -- output -------------------------------------------------------------
     buf = io.StringIO()
     w = buf.write
@@ -342,4 +385,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 

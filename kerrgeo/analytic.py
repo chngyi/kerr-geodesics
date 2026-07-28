@@ -349,15 +349,41 @@ def kerr_shadow_boundary(a, theta_obs=np.pi / 2, n=720, M=1.0):
     # Range of spherical photon orbit radii, from prograde to retrograde.
     r1 = 2.0 * M * (1.0 + np.cos((2.0 / 3.0) * np.arccos(-abs(a) / M)))
     r2 = 2.0 * M * (1.0 + np.cos((2.0 / 3.0) * np.arccos(+abs(a) / M)))
-    r = np.linspace(min(r1, r2), max(r1, r2), n // 2)
+    lo, hi = min(r1, r2), max(r1, r2)
+
+    # The curve exists only where beta^2 >= 0.  For an equatorial observer
+    # that is the whole photon-orbit range; for an inclined observer the
+    # beta = 0 tips sit at interior radii, found here by bisection.  The
+    # nodes are then Chebyshev-spaced on the valid interval: beta scales as
+    # sqrt(r - r_tip) near a tip, so uniform sampling leaves the polyline
+    # with large gaps exactly at the tips (0.015 M at n = 2000 for the
+    # equatorial case -- enough to corrupt any comparison against measured
+    # boundary points).  Cosine clustering resolves the sqrt.
+    from scipy.optimize import brentq
+
+    st, ct = np.sin(theta_obs), np.cos(theta_obs)
+
+    def beta2_of_r(rv):
+        xv, ev = kerr_photon_orbit_constants(rv, a, M)
+        return ev + a * a * ct * ct - xv * xv * (ct / st) ** 2
+
+    pad = 1e-9 * (hi - lo)
+    r_lo_t, r_hi_t = lo + pad, hi - pad
+    if beta2_of_r(r_lo_t) < 0:
+        r_lo_t = brentq(beta2_of_r, lo + pad, 0.5 * (lo + hi))
+    if beta2_of_r(r_hi_t) < 0:
+        r_hi_t = brentq(beta2_of_r, 0.5 * (lo + hi), hi - pad)
+
+    u = 0.5 * (1.0 - np.cos(np.linspace(0.0, np.pi, n // 2)))
+    r = r_lo_t + (r_hi_t - r_lo_t) * u
 
     xi, eta = kerr_photon_orbit_constants(r, a, M)
 
-    st, ct = np.sin(theta_obs), np.cos(theta_obs)
     alpha = -xi / st
     beta2 = eta + a * a * ct * ct - xi * xi * (ct / st) ** 2
-    ok = beta2 >= 0
-    alpha, beta = alpha[ok], np.sqrt(beta2[ok])
+    # The interval was solved to make beta2 >= 0 throughout; clamp the
+    # rounding-level negatives at the tips instead of dropping the points.
+    alpha, beta = alpha, np.sqrt(np.maximum(beta2, 0.0))
 
     # Close the curve: upper branch out, lower branch back.
     return (np.concatenate([alpha, alpha[::-1]]),

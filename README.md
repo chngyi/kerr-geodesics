@@ -9,12 +9,12 @@ Geometric units throughout: `G = c = 1`, lengths in units of `M`, signature
 
 ![Photon trajectories](figures/photon_trajectories.png)
 
-**Status.** Stages 1–3 complete and validated: Schwarzschild observables, the
-Kerr exterior (frame dragging, ergosphere, Lense–Thirring), and the interior in
-a horizon-penetrating chart — through both horizons to the ring singularity,
-the negative-r sheet, and the closed-timelike-curve region, each claim checked
-against an independent closed form. Remaining: backwards ray tracing.
-See [Roadmap](#roadmap).
+**Status: complete.** All four stages built and validated — Schwarzschild
+observables, the Kerr exterior (frame dragging, ergosphere, Lense–Thirring),
+the interior in a horizon-penetrating chart (through both horizons to the
+ring, the negative-r sheet and the CTC region), and a backwards ray tracer
+whose shadow lands on Bardeen's analytic curve to ~4e-4 M. Every stage's
+claims are checked against independent closed forms. See [Roadmap](#roadmap).
 
 ---
 
@@ -39,9 +39,11 @@ Then:
 ```bash
 pip install -r requirements.txt
 
-pytest -q                                        # 97 tests, ~4 min
+pytest -q                                        # 108 tests, ~4.5 min
 python scripts/run_validation.py --md VALIDATION.md   # regenerate the report
-python scripts/make_figures.py                   # regenerate figures/ (~80 s)
+python scripts/make_figures.py                   # all 13 figures (~40 min; the
+                                                 # ray-traced ones dominate --
+                                                 # use --only NAME for one)
 ```
 
 `run_validation.py` prints to stdout by default; `--md` is what writes the file.
@@ -569,6 +571,73 @@ explores is the maximally extended *vacuum* solution, on its own terms.
 
 ---
 
+## 7. Stage 4: what it looks like
+
+![Render](figures/render.png)
+
+Backwards ray tracing: each camera pixel's photon is integrated *away* from
+the camera, and the pixel shows wherever the ray came from — the horizon
+(black: the shadow), the thin disk (Doppler-shifted disk material), or the
+background sky (a checkered celestial sphere, so the lensing is visible). The
+upper panel is
+Schwarzschild; the lower is $a = 0.9M$ — the shadow shifts sideways off the
+spin axis, the disk's approaching side beams up by $(g_{app}/g_{rec})^4 \sim
+8\times$ at $r = 6M$ (more further in), and the "hair band" over the shadow is
+the disk's *far side*,
+lensed over the top of the hole. Secondary images of the disk appear under
+the shadow the same way. None of this is styled in; it all falls out of the
+geodesics.
+
+### The engine
+
+An image is $10^4$–$10^5$ rays, so [`kerrgeo/render.py`](kerrgeo/render.py)
+integrates them **as one batch**: the state is an (8, N) array, RK4 stages
+are numpy expressions over all rays at once, each ray carries its own step
+$h \propto r$, and finished rays freeze. The committed frames (480×300, fine
+steps plus a refinement pass on near-shell rays) take ~10 minutes each; a
+quick look at default settings is about ten times faster — this is the
+workload RK4 was benchmarked for back in stage 1.
+
+The batch RHS necessarily restates the BL metric as array formulas.
+Duplicated physics is a bug farm, so the first stage-4 test pins it against
+`kerrgeo.rhs` on random states (`9e-16`), and the camera is built from
+conserved quantities — Bardeen's $(\alpha, \beta) \to (\xi, \eta)$ map — so
+each pixel is just `state_from_constants` with $E = 1$.
+
+Two numerical lessons earned here, both documented in the module:
+
+- **An RK4 step is not a point evaluation.** Near $r_+$ the BL metric
+  diverges, and a step whose *stages* sample the divergent zone catapults a
+  plunging ray to $|r| \sim 10^5$ — in either direction, including outward
+  past the escape radius, silently misclassifying a captured ray. The fix is
+  a geometric approach to the capture buffer (no stage can reach the
+  divergence) plus an escape test that a one-step teleport cannot satisfy.
+- **Metrology and imaging want different integrators.** Near-critical rays
+  wind along the photon shell, whose instability e-folds integrator error
+  (the stage-2 measurement, now working against us): fixed-step RK4 leaves
+  hairline annuli of misclassified pixels near the shadow edge *no matter
+  the step size*, and bisection will lock onto one. So the images use the
+  fast batch tracer, while the boundary **measurement** uses per-ray DOP853 —
+  adaptivity keeps the trajectory error ~rtol regardless of winding, making
+  the misclassified annulus ~$10^{-9} M$ wide.
+
+### The shadow against Bardeen
+
+![Shadow validation](figures/shadow_validation.png)
+
+The stage-4 validation number: the shadow boundary, measured by radial
+bisection on integrated rays at 16 position angles, lands on Bardeen's
+analytic curve to **max 4.6e-4 M at 90° inclination and 3.4e-4 M at 60°** —
+the bisection tolerance — and the $a = 0$ shadow is a circle of radius
+`5.196129` vs $3\sqrt{3} = 5.196152$, round to $10^{-4}$. The analytic curve
+enters the measurement only as a ±30% bracket seed, so agreement is earned,
+not assumed. (Getting the *reference* right took care too: near its $\beta=0$
+tips the curve scales as $\sqrt{r - r_{tip}}$, and uniformly-sampled
+polylines fall short of the true capture thresholds by 0.015M — the library
+now solves for the tips and clusters nodes there.)
+
+---
+
 ## Layout
 
 ```
@@ -584,14 +653,16 @@ kerrgeo/
   separated.py        Carter first-order form, as an independent cross-check
   measure.py          deflection, precession, capture threshold, reversibility
   analytic.py         closed forms and exact quadratures to validate against
+  render.py           batch ray tracer, pixel camera, shadow bisection, disk shading
 scripts/
   run_validation.py   quantitative report -> VALIDATION.md
-  make_figures.py     the nine figures in figures/  (--only name to regenerate one)
+  make_figures.py     the 13 figures in figures/  (--only name to regenerate one)
   style.py            plotting style; CVD-checked palette
 tests/
   test_kerrgeo.py     60 tests: machinery, conservation, Schwarzschild observables
   test_kerr_stage2.py 22 tests: Kerr physics vs closed forms
   test_kerr_stage3.py 15 tests: chart agreement, horizon crossing, interior, CTCs
+  test_kerr_stage4.py 11 tests: batch-tracer honesty, shadow vs Bardeen, Doppler
 ```
 
 Schwarzschild is deliberately *not* a separate implementation — it is
@@ -611,9 +682,9 @@ Kerr code, where far fewer closed forms exist.
       BL/ingoing agreement to 2e-13; exact principal-null-ray test through
       to $r<0$; CTC region mapped and traversed; Cauchy-horizon stall
       behaviour pinned. Validated.
-- [ ] **Stage 4 — Backwards ray tracing.** `analytic.kerr_shadow_boundary`
-      already provides the Bardeen (1973) analytic shadow outline to validate a
-      rendered image against.
+- [x] **Stage 4 — Backwards ray tracing.** Vectorised batch tracer (~10^5
+      rays); shadow boundary matches Bardeen to ~4e-4 M at two inclinations;
+      a = 0 shadow round to 1e-4; Doppler-beamed disk render. Validated.
 
 ## References
 
@@ -627,6 +698,12 @@ Kerr code, where far fewer closed forms exist.
 - Keeton & Petters, Phys. Rev. D **72** (2005) 104006 — the deflection series beyond $4M/b$.
 - Hairer, Lubich & Wanner, *Geometric Numerical Integration* (2006) — Gauss–Legendre as a symplectic method for non-separable $H$.
 - Squire & Trapp, SIAM Rev. **40** (1998) 110 — complex-step differentiation.
+
+## License
+
+MIT — see [LICENSE](LICENSE). `requirements-lock.txt` pins the exact
+dependency versions the validation numbers were produced with
+(numpy 2.5.1, scipy 1.18.0); `requirements.txt` gives the loose ranges.
 
 Open-source Kerr integrators worth comparing against:
 [curvedpy](https://github.com/bldevries/curvedpy) (Python, Schwarzschild + Kerr),

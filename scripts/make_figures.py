@@ -778,6 +778,113 @@ def fig_interior_map(out):
     plt.close(fig)
 
 
+# ---------------------------------------------------------------------------
+# Stage 4: ray tracing
+# ---------------------------------------------------------------------------
+
+def fig_shadow_validation(out):
+    """The rendered shadow against Bardeen's analytic curve, with the
+    boundary measured independently by bisection."""
+    from kerrgeo import render as RD
+
+    a, th_obs = 0.9, np.pi / 2
+    fig, (ax0, ax1) = plt.subplots(1, 2, figsize=(11.2, 4.9),
+                                   gridspec_kw={"wspace": 0.28,
+                                                "width_ratios": [1.15, 1.0]})
+
+    # -- left: the classified image + the analytic curve ---------------------
+    nx, ny = 360, 300
+    al = np.linspace(-9.5, 9.5, nx)
+    be = np.linspace(-7.9, 7.9, ny)
+    A_, B_ = np.meshgrid(al, be)
+    y0 = RD.pixel_rays(A_.ravel(), B_.ravel(), 400.0, th_obs, a)
+    outr = RD.trace_rays_refined(y0, a, r_esc=420.0, h_scale=0.01,
+                                 max_steps=100000)
+    cap = (outr["status"] == RD.CAPTURED).reshape(ny, nx)
+
+    ax0.imshow(cap, extent=[al[0], al[-1], be[0], be[-1]], origin="lower",
+               cmap=mpl.colors.ListedColormap([style.SURFACE, style.HOLE]),
+               interpolation="nearest", aspect="equal")
+    ax0.grid(False)
+    ac, bc = analytic.kerr_shadow_boundary(a, th_obs, n=4000)
+    ax0.plot(ac, bc, color=CAT[1], lw=1.6, linestyle=style.DASH, zorder=4,
+             label="Bardeen analytic curve")
+    psis = np.linspace(0, 2 * np.pi, 16, endpoint=False)
+    am, bm = RD.shadow_edges(psis, 200.0, th_obs, a, tol=1e-4)
+    ax0.plot(am, bm, "o", color=CAT[0], ms=5.5, zorder=5,
+             markeredgecolor=style.SURFACE, markeredgewidth=1.3,
+             label="measured edge (bisection)")
+    ax0.set_xlabel(r"$\alpha$  [M]")
+    ax0.set_ylabel(r"$\beta$  [M]")
+    ax0.set_title("The shadow of an a = 0.9M hole (equatorial view)\n"
+                  "ray-traced silhouette, analytic curve, measured boundary")
+    ax0.legend(loc="upper left")
+
+    # -- right: radial deviation of the measured edge ------------------------
+    ac_d, bc_d = analytic.kerr_shadow_boundary(a, th_obs, n=40000)
+    devs = np.array([np.hypot(ac_d - x, bc_d - y).min()
+                     for x, y in zip(am, bm)])
+    ax1.semilogy(np.degrees(psis), np.maximum(devs, 1e-6), "o",
+                 color=CAT[0], ms=5.5, linestyle=style.SOLID, lw=1.2)
+    ax1.axhline(1e-4, color=style.INK_MUTED, lw=1.0, linestyle=style.FINEDOT)
+    ax1.annotate("bisection tolerance", (5, 1.25e-4), color=style.INK_MUTED,
+                 fontsize=8.5)
+    ax1.set_xlabel(r"position angle  $\psi$  [deg]")
+    ax1.set_ylabel("distance to analytic curve  [M]")
+    ax1.set_title("Measured boundary vs Bardeen, 16 angles")
+    ax1.set_ylim(1e-6, 1e-2)
+
+    fig.savefig(os.path.join(out, "shadow_validation.png"))
+    plt.close(fig)
+    return devs
+
+
+def fig_render(out):
+    """The image: lensed accretion disk, Doppler beaming, and the shadow --
+    Schwarzschild beside a = 0.9 Kerr."""
+    from kerrgeo import render as RD
+
+    fig, axes = plt.subplots(2, 1, figsize=(9.6, 9.6))
+
+    for ax, a, label in ((axes[0], 0.0, "a = 0"),
+                         (axes[1], 0.9, "a = 0.9M")):
+        scene = RD.render_scene(a, np.radians(80.0), nx=480, ny=300,
+                                fov=21.0, r_obs=800.0, disk_rout=16.0,
+                                h_scale=0.012, max_steps=120000)
+        st = scene["status"]
+        al, be = scene["alpha"], scene["beta"]
+
+        # Compose: sky checker (dim), disk (hot colormap on log intensity),
+        # shadow and undecided pixels black.
+        img = np.zeros(st.shape + (3,))
+        chk = scene["checker"]
+        sky = np.where(np.isnan(chk), 0.0, 0.05 + 0.05 * chk)
+        for c, w in zip(range(3), (0.55, 0.75, 1.0)):     # cold blue sky
+            img[..., c] = sky * w
+
+        I = scene["intensity"]
+        disk = st == RD.DISK
+        if disk.any():
+            lo, hi = np.nanpercentile(np.log10(I[disk]), [2, 99.5])
+            u = np.clip((np.log10(I) - lo) / (hi - lo), 0, 1)
+            hot = mpl.colormaps["afmhot"](u)[..., :3]
+            img[disk] = hot[disk]
+
+        ax.imshow(img, extent=[al[0], al[-1], be[0], be[-1]],
+                  origin="lower", aspect="equal", interpolation="bilinear")
+        ax.grid(False)
+        ax.set_ylabel(r"$\beta$  [M]")
+        ax.text(0.02, 0.93, label, transform=ax.transAxes, color="w",
+                fontsize=11, fontweight="bold")
+        ax.tick_params(colors=style.INK_MUTED)
+    axes[1].set_xlabel(r"$\alpha$  [M]")
+    axes[0].set_title("Thin disk to 16M, observer at 80°: lensing, Doppler "
+                      "beaming, and the shadow", fontsize=10.5)
+
+    fig.savefig(os.path.join(out, "render.png"))
+    plt.close(fig)
+
+
 ALL_FIGURES = (
     ("photon_trajectories", fig_photon_trajectories),
     ("deflection", fig_deflection),
@@ -790,6 +897,8 @@ ALL_FIGURES = (
     ("kerr_precession", fig_kerr_precession),
     ("horizon_crossing", fig_horizon_crossing),
     ("interior_map", fig_interior_map),
+    ("shadow_validation", fig_shadow_validation),
+    ("render", fig_render),
 )
 
 

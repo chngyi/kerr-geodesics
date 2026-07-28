@@ -39,7 +39,7 @@ from .hamiltonian import (
 )
 from .invariants import norm, energy, angular_momentum, carter, drift_report
 from .integrate import trace, rk4, gauss_legendre, Solution
-from . import analytic, events, measure, separated
+from . import analytic, events, measure, render, separated
 
 __all__ = [
     "Metric", "KerrBL", "Schwarzschild",
@@ -50,7 +50,7 @@ __all__ = [
     "zamo_drop_state", "spherical_photon_orbit", "spherical_orbit",
     "norm", "energy", "angular_momentum", "carter", "drift_report",
     "trace", "rk4", "gauss_legendre", "Solution",
-    "analytic", "events", "measure", "separated",
+    "analytic", "events", "measure", "render", "separated",
 ]
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
